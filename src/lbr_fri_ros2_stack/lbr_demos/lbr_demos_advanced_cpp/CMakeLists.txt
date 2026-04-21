@@ -1,0 +1,74 @@
+cmake_minimum_required(VERSION 3.22)
+project(lbr_demos_advanced_cpp)
+
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+# find dependencies
+find_package(ament_cmake REQUIRED)
+find_package(FRIClient REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(kdl_parser REQUIRED)
+find_package(lbr_fri_idl REQUIRED)
+find_package(lbr_fri_ros2 REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rclcpp_components REQUIRED)
+
+# pose planning node
+add_library(pose_planning_component
+  SHARED
+    src/pose_planning_node.cpp
+)
+
+target_include_directories(pose_planning_component
+  PRIVATE src
+)
+
+target_link_libraries(pose_planning_component PUBLIC
+  ${geometry_msgs_TARGETS}
+  rclcpp::rclcpp
+  rclcpp_components::component
+)
+
+rclcpp_components_register_node(pose_planning_component
+  PLUGIN lbr_demos::PosePlanningNode
+  EXECUTABLE pose_planning
+)
+
+# pose contol node
+add_library(pose_control_component
+  SHARED
+    src/pose_control_node.cpp
+)
+
+target_include_directories(pose_control_component
+  PRIVATE src
+)
+
+target_link_libraries(pose_control_component PUBLIC
+  FRIClient::FRIClient
+  ${geometry_msgs_TARGETS}
+  kdl_parser::kdl_parser
+  ${lbr_fri_idl_TARGETS}
+  rclcpp::rclcpp
+  rclcpp_components::component
+)
+
+rclcpp_components_register_node(pose_control_component
+  PLUGIN lbr_demos::PoseControlNode
+  EXECUTABLE pose_control
+)
+
+# install
+install(
+  TARGETS pose_planning_component pose_control_component
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
+ament_package()

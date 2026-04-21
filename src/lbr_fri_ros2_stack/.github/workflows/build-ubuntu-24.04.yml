@@ -1,0 +1,22 @@
+name: Build
+
+on:
+  workflow_call: # https://github.com/orgs/community/discussions/52616#discussioncomment-9364532
+    inputs:
+      fri_version:
+        required: true
+        type: string
+
+# ros 2 ci: https://github.com/marketplace/actions/ros-2-ci-action
+# doc: https://ubuntu.com/blog/ros-2-ci-with-github-actions
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    container:
+      image: rostooling/setup-ros-docker:ubuntu-noble-ros-jazzy-desktop-latest
+    steps:
+      - uses: ros-tooling/action-ros-ci@v0.4
+        with:
+          package-name: lbr_fri_ros2_stack
+          target-ros2-distro: jazzy
+          vcs-repo-file-url: https://raw.githubusercontent.com/lbr-stack/lbr_fri_ros2_stack/jazzy/lbr_fri_ros2_stack/repos-fri-${{ inputs.fri_version }}.yaml

@@ -1,0 +1,14 @@
+name: ubuntu-24.04-fri-2.7
+on:
+  pull_request:
+    branches:
+      - jazzy
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * 0"
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-ubuntu-24.04.yml
+    with:
+      fri_version: 2.7

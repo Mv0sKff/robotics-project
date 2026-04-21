@@ -1,0 +1,9 @@
+repositories:
+  fri:
+    type: git
+    url: https://github.com/lbr-stack/fri
+    version: fri-1.16
+  lbr_fri_idl:
+    type: git
+    url: https://github.com/lbr-stack/lbr_fri_idl
+    version: fri-1
