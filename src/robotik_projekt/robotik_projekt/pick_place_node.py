@@ -1,3 +1,4 @@
+import math
 import rclpy
 from control_msgs.action import FollowJointTrajectory
 from rclpy.action import ActionClient
@@ -16,8 +17,12 @@ class PickPlaceNode(Node):
             "joint_trajectory_controller/follow_joint_trajectory",
         )
 
+        self.get_logger().info(
+            "Waiting for action server to become available... "
+            "(on hardware: ensure the FRI application is running on the Sunrise cabinet)"
+        )
         while not self._action_client.wait_for_server(timeout_sec=1.0):
-            self.get_logger().info("Waiting for action server to become available...")
+            self.get_logger().info("Still waiting for action server...")
 
         self.get_logger().info("Action server available.")
 
@@ -79,16 +84,22 @@ def main(args=None) -> None:
 
     duration = 8  # Duration for each movement in seconds
 
-    home_position = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    def degrees_to_radians(angles_deg: list[float]) -> list[float]:
+        return [math.radians(angle) for angle in angles_deg]
+
+    home_position = degrees_to_radians([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    pick_place_position = degrees_to_radians([-38.94, -0.23, -3.14, -86.92, 0.41, 93.19, -11.74])
     over_pick_place_position = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    pick_place_position = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     swing_left_position = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     swing_right_position = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
     node.get_logger().info("Moving to home position.")
     node.move_to_joint_positions(home_position, duration=duration)
 
-    node.get_logger().info("Moving to over pick/place_position.")
+    node.get_logger().info("Moving to pick/place_position.")
+    node.move_to_joint_positions(pick_place_position, duration=duration)
+
+    """node.get_logger().info("Moving to over pick/place_position.")
     node.move_to_joint_positions(over_pick_place_position, duration=duration)
 
     node.get_logger().info("Moving to pick/place_position.")
@@ -117,7 +128,7 @@ def main(args=None) -> None:
 
     node.get_logger().info("Moving back to home position.")
     node.move_to_joint_positions(home_position, duration=duration)
-
+"""
     node.destroy_node()
     rclpy.shutdown()
 

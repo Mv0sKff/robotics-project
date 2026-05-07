@@ -43,3 +43,21 @@ ros2 launch lbr_bringup hardware.launch.py \
     ctrl:=lbr_joint_position_command_controller \
     model:=iiwa14
 ```
+
+## Run pick_place_node on Hardware
+
+### Terminal 1
+
+```sh
+ros2 launch lbr_bringup hardware.launch.py ctrl:=joint_trajectory_controller model:=iiwa14
+```
+
+### Start LBRServer on Robot
+
+### Terminal 2
+
+```sh
+colcon build --packages-select robotik_projekt
+source install/setup.bash
+ros2 run robotik_projekt pick_place_node --ros-args -r __ns:=/lbr
+```
