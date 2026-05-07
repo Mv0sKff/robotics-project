@@ -4,3 +4,7 @@ build/
 
 lbr_fri_idl/
 fri/
+
+.envrc
+
+robotik_projekt_test/

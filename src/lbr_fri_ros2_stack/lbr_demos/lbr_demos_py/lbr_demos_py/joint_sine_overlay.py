@@ -11,7 +11,7 @@ from lbr_fri_idl.msg import LBRJointPositionCommand, LBRState
 
 class JointSineOverlayNode(Node):
     def __init__(self, node_name: str) -> None:
-        super().__init__(node_name)
+        super().__init__(node_name, namespace='lbr')
 
         self._amplitude = 0.04  # rad
         self._frequency = 0.25  # Hz
@@ -46,9 +46,9 @@ class JointSineOverlayNode(Node):
 
         if lbr_state.session_state == 4:  # KUKA::FRI::COMMANDING_ACTIVE == 4
             # overlay sine wave on 4th joint
-            self._lbr_joint_position_command.joint_position[
-                3
-            ] += self._amplitude * math.sin(self._phase)
+            self._lbr_joint_position_command.joint_position[3] += (
+                self._amplitude * math.sin(self._phase)
+            )
             self._phase += 2 * math.pi * self._frequency * self._dt
 
             self._lbr_joint_position_command_pub.publish(
