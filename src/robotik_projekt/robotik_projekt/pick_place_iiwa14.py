@@ -1,0 +1,266 @@
+import math
+import threading
+import time
+
+import rclpy
+from rclpy.node import Node
+from rclpy.duration import Duration
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
+
+import tf2_ros
+from pymoveit2 import MoveIt2
+from sensor_msgs.msg import JointState
+from scipy.spatial.transform import Rotation
+
+# -----------------------------------------------------------------------------
+# Konfiguration
+# -----------------------------------------------------------------------------
+
+BASE_LINK       = 'lbr_link_0'
+END_EFFECTOR    = 'lbr_link_ee'
+GROUP_NAME      = 'arm'
+
+JOINT_NAMES = ['lbr_A1', 'lbr_A2', 'lbr_A3', 'lbr_A4', 'lbr_A5', 'lbr_A6', 'lbr_A7']
+
+HOME_POSITION = [0.0] * 7
+
+START_JOINT_POSITION = [
+    0.0,
+    math.radians(30),
+    0.0,
+    math.radians(-90),
+    0.0,
+    math.radians(60),
+    0.0,
+]
+
+PICK_JOINT_POSITION = [
+    math.radians(30),
+    math.radians(30),
+    0.0,
+    math.radians(-90),
+    0.0,
+    math.radians(60),
+    0.0,
+]
+
+MAX_VELOCITY     = 0.50
+MAX_ACCELERATION = 0.50
+WAIT_TIMEOUT     = 10.0   # Sekunden fuer Joint-State- und TF-Wartezeit
+
+
+# -----------------------------------------------------------------------------
+# Node
+# -----------------------------------------------------------------------------
+
+class PickPlace(Node):
+
+    def __init__(self):
+        super().__init__('pick_place_iiwa14')
+
+        self.callback_group = ReentrantCallbackGroup()
+        self._joint_state_received = False
+
+        self.create_subscription(JointState, 'joint_states', self._on_joint_state, 10)
+
+        self.tf_buffer   = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self, spin_thread=False)
+
+        self.moveit2 = MoveIt2(
+            node=self,
+            joint_names=JOINT_NAMES,
+            base_link_name=BASE_LINK,
+            end_effector_name=END_EFFECTOR,
+            group_name=GROUP_NAME,
+            callback_group=self.callback_group,
+            use_move_group_action=False,
+            ignore_new_calls_while_executing=True,
+        )
+        self.moveit2.max_velocity     = MAX_VELOCITY
+        self.moveit2.max_acceleration = MAX_ACCELERATION
+
+    # -------------------------------------------------------------------------
+    # Callbacks & Hilfsmethoden
+    # -------------------------------------------------------------------------
+
+    def _on_joint_state(self, msg: JointState):
+        if not self._joint_state_received:
+            self.get_logger().info('Joint States verfügbar.')
+        self._joint_state_received = True
+
+    def _wait_for(self, condition_fn, label: str, timeout: float = WAIT_TIMEOUT) -> bool:
+        '''Wartet, bis condition_fn() True zurückgibt oder Timeout eintritt.'''
+        self.get_logger().info(f'Warte auf: {label}')
+        deadline = time.time() + timeout
+        while rclpy.ok():
+            if condition_fn():
+                return True
+            if time.time() > deadline:
+                self.get_logger().error(f'Timeout: {label}')
+                return False
+            time.sleep(0.05)
+        return False
+
+    def _wait_for_joint_states(self) -> bool:
+        return self._wait_for(
+            lambda: self._joint_state_received,
+            'Joint States',
+        )
+
+    def _wait_for_tf(self) -> bool:
+        def tf_available():
+            try:
+                self.tf_buffer.lookup_transform(
+                    BASE_LINK, END_EFFECTOR,
+                    rclpy.time.Time(), timeout=Duration(seconds=0.2),
+                )
+                self.get_logger().info('TF verfügbar.')
+                return True
+            except Exception:
+                return False
+
+        return self._wait_for(tf_available, f'TF {BASE_LINK} → {END_EFFECTOR}')
+
+    def _get_ee_pose(self) -> tuple[list[float], list[float]]:
+        '''
+        Liest aktuelle Endeffektor-Pose relativ zu BASE_LINK.
+
+        Rückgabe:
+            position:  [x, y, z]
+            quat_xyzw: [x, y, z, w]
+        '''
+        t = self.tf_buffer.lookup_transform(
+            BASE_LINK, END_EFFECTOR,
+            rclpy.time.Time(), timeout=Duration(seconds=2.0),
+        )
+        pos  = [t.transform.translation.x, t.transform.translation.y, t.transform.translation.z]
+        quat = [t.transform.rotation.x, t.transform.rotation.y,
+                t.transform.rotation.z, t.transform.rotation.w]
+        return pos, quat
+
+    def _apply_rotation_absolut(self, current_quat: list[float], roll: float = None, pitch: float = None,  yaw: float = None) -> list[float]:
+        '''Setzt Winkel absolut – fehlende Achsen aus aktueller Orientierung.'''
+        if not any(v is not None for v in (roll, pitch, yaw)):
+            return current_quat
+        current_rpy = Rotation.from_quat(current_quat).as_euler('xyz')
+        r = roll  if roll  is not None else current_rpy[0]
+        p = pitch if pitch is not None else current_rpy[1]
+        y = yaw   if yaw   is not None else current_rpy[2]
+        return Rotation.from_euler('xyz', [r, p, y]).as_quat().tolist()
+    
+    def _apply_rotation_relativ(self, current_quat: list[float], roll: float = 0.0, pitch: float = 0.0,  yaw: float = 0.0) -> list[float]:
+        '''Addiert Winkel auf aktuelle Orientierung drauf.'''
+        current_rpy = Rotation.from_quat(current_quat).as_euler('xyz')
+        r = current_rpy[0] + roll
+        p = current_rpy[1] + pitch
+        y = current_rpy[2] + yaw
+        return Rotation.from_euler('xyz', [r, p, y]).as_quat().tolist()
+
+
+    # -------------------------------------------------------------------------
+    # Bewegungsbefehle
+    # -------------------------------------------------------------------------
+
+    def move_to_joint_position(self, joint_positions: list[float], name: str = ''):
+        '''Fährt eine Gelenkstellung an (Werte in Radiant).'''
+        self.get_logger().info(
+            f'[{name}] Gelenkposition = '
+            + ', '.join(f'{j}={v:.3f}' for j, v in zip(JOINT_NAMES, joint_positions))
+        )
+        self.moveit2.move_to_configuration(joint_positions)
+        self.moveit2.wait_until_executed()
+        self.get_logger().info(f'[{name}] ✓ fertig')
+
+    def move_to_base_position(self, x: float, y: float, z: float, roll: float = None, pitch: float = None, yaw: float = None, name: str = ''):
+        '''Position und Rotation absolut im BASE_LINK-Frame.'''
+        _, current_quat = self._get_ee_pose()
+        target_quat = self._apply_rotation_absolut(current_quat, roll, pitch, yaw)
+
+        self.get_logger().info(f'[{name}] Absolutepositon = ({x:.3f}, {y:.3f}, {z:.3f})')
+        self.moveit2.move_to_pose(position=[x, y, z], quat_xyzw=target_quat, cartesian=False)
+        self.moveit2.wait_until_executed()
+        self.get_logger().info(f'[{name}] ✓ fertig')
+
+    def move_to_relative_position(self, dx: float = 0.0, dy: float = 0.0, dz: float = 0.0, roll: float = 0.0, pitch: float = 0.0, yaw: float = 0.0, name: str = ''):
+        '''Position und Rotation relativ zur aktuellen EE-Pose.h'''
+        current_pos, current_quat = self._get_ee_pose()
+        target = [current_pos[0] + dx, current_pos[1] + dy, current_pos[2] + dz]
+        target_quat = self._apply_rotation_relativ(current_quat, roll, pitch, yaw)
+
+        self.get_logger().info(
+            f'[{name}] Relativ Δpos = ({dx:+.3f}, {dy:+.3f}, {dz:+.3f})  '
+            f'Δrot = ({math.degrees(roll):+.1f}°,{math.degrees(pitch):+.1f}°,{math.degrees(yaw):+.1f}°)'
+            f'Current-Pos = ({current_pos[0]:.3f}, {current_pos[1]:.3f}, {current_pos[2]:.3f}), Current-Rot = ({math.degrees(Rotation.from_quat(current_quat).as_euler("xyz")[0]):.1f}°,{math.degrees(Rotation.from_quat(current_quat).as_euler("xyz")[1]):.1f}°,{math.degrees(Rotation.from_quat(current_quat).as_euler("xyz")[2]):.1f}°)'
+        )
+        self.moveit2.move_to_pose(position=target, quat_xyzw=target_quat, cartesian=False)
+        self.moveit2.wait_until_executed()
+        self.get_logger().info(f'[{name}] ✓ fertig')
+
+    # -------------------------------------------------------------------------
+    # Hauptablauf
+    # -------------------------------------------------------------------------
+
+    def run_job(self) -> int:
+        self.get_logger().info('=== Pick & Place gestartet ===')
+
+        if not self._wait_for_joint_states():
+            return 1
+        if not self._wait_for_tf():
+            return 1
+
+        self.move_to_joint_position(HOME_POSITION, 'Home')
+        self.move_to_joint_position(START_JOINT_POSITION, 'Start')
+        self.move_to_joint_position(PICK_JOINT_POSITION, 'Pick')
+        self.move_to_relative_position(dz=-0.30, name='Pick-Down')
+        #vaccum on
+        self.move_to_relative_position(dz=0.30, name='Pick-Up')
+        self.move_to_joint_position(START_JOINT_POSITION, 'Start')
+        self.move_to_relative_position(dx=0.0,  dy=-0.1, roll=math.radians(45),  pitch=math.radians(0),   name='test0')
+        for _ in range(5):
+            self.move_to_relative_position(dx=0.1,  dy=0.1,  roll=math.radians(-45), pitch=math.radians(45),  name='test1')
+            self.move_to_relative_position(dx=-0.1, dy=0.1,  roll=math.radians(-45), pitch=math.radians(-45), name='test2')
+            self.move_to_relative_position(dx=-0.1, dy=-0.1, roll=math.radians(45),  pitch=math.radians(-45), name='test3')
+            self.move_to_relative_position(dx=0.1,  dy=-0.1, roll=math.radians(45),  pitch=math.radians(45),  name='test4')
+        self.move_to_joint_position(START_JOINT_POSITION, 'Start')
+        self.move_to_relative_position(dz=-0.30, name='Place-Down')
+        #vaccum off
+        self.move_to_relative_position(dz=0.30, name='Place-Up')
+        self.move_to_joint_position(HOME_POSITION, 'Home')
+
+        self.get_logger().info('=== Pick & Place erfolgreich beendet ===')
+        return 0
+
+
+# -----------------------------------------------------------------------------
+# Entry Point
+# -----------------------------------------------------------------------------
+
+def main() -> int:
+    rclpy.init()
+    node = PickPlace()
+
+    executor = MultiThreadedExecutor(num_threads=4)
+    executor.add_node(node)
+    thread = threading.Thread(target=executor.spin, daemon=True)
+    thread.start()
+
+    exit_code = 1
+    try:
+        exit_code = node.run_job()
+    except KeyboardInterrupt:
+        node.get_logger().warn('Abgebrochen.')
+        exit_code = 130
+    except Exception as exc:
+        node.get_logger().error(f'Fehler: {exc}')
+    finally:
+        executor.shutdown()
+        thread.join(timeout=2.0)
+        node.destroy_node()
+        rclpy.shutdown()
+
+    return exit_code
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
