@@ -61,10 +61,25 @@ WAIT_TIMEOUT     = 10.0   # Sekunden fuer Joint-State- und TF-Wartezeit
 class DigitalOutputClient:
     '''Allgemeiner Client zum Schalten digitaler Ausgänge.'''
 
-    def __init__(self, node: Node, callback_group, num_channels: int = 4):
+    def __init__(
+        self,
+        node: Node,
+        callback_group,
+        num_channels: int = 4,
+        service_name_template: str = '/lbr/digital_output/ch{channel}/set',
+    ):
         self._node = node
         self._num_channels = num_channels
+        self._service_name_template = service_name_template
         self._states: dict[int, bool] = {ch: False for ch in range(num_channels)}
+        self._clients = {
+            ch: self._node.create_client(
+                SetBool,
+                self._service_name_template.format(channel=ch + 1),
+                callback_group=callback_group,
+            )
+            for ch in range(num_channels)
+        }
 
     def wait_for_services(self, channel: int, state: bool, timeout_sec: float = 5.0) -> bool:
         '''Wartet, bis der digitale Ausgang den gewünschten Zustand hat.'''
@@ -91,12 +106,50 @@ class DigitalOutputClient:
         self._node.get_logger().info(
             f'Digital-Output ch={channel} → {"EIN" if state else "AUS"}'
         )
-        # return self._call_service(channel, state)
-        return True
+        return self._call_service(channel, state)
+        #return True
 
     def get_output(self, channel: int) -> bool | None:
         '''Gibt den zuletzt gesetzten Zustand eines Kanals zurück.'''
         return self._states.get(channel)
+
+    def _call_service(self, channel: int, state: bool, timeout_sec: float = 2.0) -> bool:
+        client = self._clients.get(channel)
+        if client is None:
+            self._node.get_logger().error(
+                f'Digital-Output ch={channel} Service-Client fehlt'
+            )
+            return False
+
+        if not client.wait_for_service(timeout_sec=timeout_sec):
+            self._node.get_logger().error(
+                f'Digital-Output ch={channel} Service nicht verfuegbar'
+            )
+            return False
+
+        req = SetBool.Request()
+        req.data = state
+        future = client.call_async(req)
+
+        rclpy.spin_until_future_complete(self._node, future, timeout_sec=timeout_sec)
+        if not future.done():
+            self._node.get_logger().error(
+                f'Digital-Output ch={channel} Service-Timeout'
+            )
+            return False
+
+        resp = future.result()
+        if resp is None:
+            self._node.get_logger().error(
+                f'Digital-Output ch={channel} Service-Fehler'
+            )
+            return False
+
+        if not resp.success:
+            self._node.get_logger().error(
+                f'Digital-Output ch={channel} nicht geschaltet: {resp.message}'
+            )
+        return resp.success
 
 # -----------------------------------------------------------------------------
 # Node
