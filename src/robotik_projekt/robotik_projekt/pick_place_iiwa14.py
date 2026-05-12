@@ -1,7 +1,11 @@
 import math
 import threading
 import time
-
+from pathlib import Path
+import csv
+from datetime import datetime
+from lbr_fri_idl.msg import LBRState
+#from build.lbr_fri_idl.ament_cmake_python.lbr_fri_idl.lbr_fri_idl.msg._lbr_state import LBRState
 import rclpy
 from rclpy.node import Node
 from rclpy.duration import Duration
@@ -12,6 +16,7 @@ import tf2_ros
 from pymoveit2 import MoveIt2
 from sensor_msgs.msg import JointState
 from scipy.spatial.transform import Rotation
+from std_srvs.srv import SetBool
 
 # -----------------------------------------------------------------------------
 # Konfiguration
@@ -45,10 +50,53 @@ PICK_JOINT_POSITION = [
     0.0,
 ]
 
-MAX_VELOCITY     = 0.50
-MAX_ACCELERATION = 0.50
+MAX_VELOCITY     = 1.00
+MAX_ACCELERATION = 1.00
 WAIT_TIMEOUT     = 10.0   # Sekunden fuer Joint-State- und TF-Wartezeit
 
+# -----------------------------------------------------------------------------
+# Digital Output Client
+# -----------------------------------------------------------------------------
+
+class DigitalOutputClient:
+    '''Allgemeiner Client zum Schalten digitaler Ausgänge.'''
+
+    def __init__(self, node: Node, callback_group, num_channels: int = 4):
+        self._node = node
+        self._num_channels = num_channels
+        self._states: dict[int, bool] = {ch: False for ch in range(num_channels)}
+
+    def wait_for_services(self, channel: int, state: bool, timeout_sec: float = 5.0) -> bool:
+        '''Wartet, bis der digitale Ausgang den gewünschten Zustand hat.'''
+        start_time = time.time()
+
+        while not self.get_output(channel) == state:
+            if time.time() - start_time > timeout_sec:
+                self._node.get_logger().error(
+                    f'Timeout beim Warten auf Digital-Output ch={channel} state={"EIN" if state else "AUS"}'
+                )
+                return False
+            time.sleep(0.1)
+        return True
+
+    def set_output(self, channel: int, state: bool) -> bool:
+        '''Schaltet einen digitalen Ausgang.'''
+        if channel not in self._states:
+            self._node.get_logger().error(
+                f'Digital-Output ch={channel} existiert nicht '
+            )
+            return False
+
+        self._states[channel] = state
+        self._node.get_logger().info(
+            f'Digital-Output ch={channel} → {"EIN" if state else "AUS"}'
+        )
+        # return self._call_service(channel, state)
+        return True
+
+    def get_output(self, channel: int) -> bool | None:
+        '''Gibt den zuletzt gesetzten Zustand eines Kanals zurück.'''
+        return self._states.get(channel)
 
 # -----------------------------------------------------------------------------
 # Node
@@ -79,6 +127,28 @@ class PickPlace(Node):
         )
         self.moveit2.max_velocity     = MAX_VELOCITY
         self.moveit2.max_acceleration = MAX_ACCELERATION
+
+        # Digital Output Client
+        self.digital_out = DigitalOutputClient(
+            node=self,
+            callback_group=self.callback_group,
+            num_channels=4,
+        )
+
+        # Log-CSV-Datei
+        self._current_step = 'init'
+        self._axis_torque = [0.00] * 7
+        self.create_subscription(LBRState, '/lbr/lbr_state', self._on_lbr_state, 10)
+
+        log_dir  = Path.cwd() / 'log' / 'torque_logs'
+        Path.mkdir(log_dir, parents=True, exist_ok=True)
+        filename = datetime.now().strftime('torque_%Y%m%d_%H%M%S.csv')
+        self._csv_file_path = log_dir / filename
+
+        with open(self._csv_file_path, mode='w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['timestamp', 'step'] + [f'A_{i+1}' for i in range(7)])
+        self.get_logger().info(f'Touque-Log: {self._csv_file_path}')
 
     # -------------------------------------------------------------------------
     # Callbacks & Hilfsmethoden
@@ -157,6 +227,14 @@ class PickPlace(Node):
         y = current_rpy[2] + yaw
         return Rotation.from_euler('xyz', [r, p, y]).as_quat().tolist()
 
+    def _on_lbr_state(self, msg: LBRState):
+        self._axis_torque = list(msg.external_torque)
+        self._log_torque(self._current_step)
+
+    def _log_torque(self, step: str):
+        row = [f'{time.time():.3f}', step] + [f'{t:.4f}' for t in self._axis_torque]
+        with open(self._csv_file_path, mode='a', newline='') as f:
+            csv.writer(f).writerow(row)
 
     # -------------------------------------------------------------------------
     # Bewegungsbefehle
@@ -208,24 +286,72 @@ class PickPlace(Node):
             return 1
         if not self._wait_for_tf():
             return 1
-
+        self._current_step = 'home'
         self.move_to_joint_position(HOME_POSITION, 'Home')
+        self._current_step = 'Start'
         self.move_to_joint_position(START_JOINT_POSITION, 'Start')
+        self._current_step = 'Pick'
         self.move_to_joint_position(PICK_JOINT_POSITION, 'Pick')
+        self._current_step = 'Pick-Down'
         self.move_to_relative_position(dz=-0.30, name='Pick-Down')
-        #vaccum on
+        #vaccum(true)
+        self.digital_out.set_output(channel=0, state=True)
+        #
+        self._current_step = 'Pick-Up'
         self.move_to_relative_position(dz=0.30, name='Pick-Up')
+        self._current_step = 'Start'
         self.move_to_joint_position(START_JOINT_POSITION, 'Start')
-        self.move_to_relative_position(dx=0.0,  dy=-0.1, roll=math.radians(45),  pitch=math.radians(0),   name='test0')
-        for _ in range(5):
-            self.move_to_relative_position(dx=0.1,  dy=0.1,  roll=math.radians(-45), pitch=math.radians(45),  name='test1')
-            self.move_to_relative_position(dx=-0.1, dy=0.1,  roll=math.radians(-45), pitch=math.radians(-45), name='test2')
-            self.move_to_relative_position(dx=-0.1, dy=-0.1, roll=math.radians(45),  pitch=math.radians(-45), name='test3')
-            self.move_to_relative_position(dx=0.1,  dy=-0.1, roll=math.radians(45),  pitch=math.radians(45),  name='test4')
+        self._current_step = 'test0'
+        self.move_to_relative_position(
+            dx=0.0,  
+            dy=-0.1, 
+            roll=math.radians(45),  
+            pitch=math.radians(0),   
+            name='test0'
+        )
+        for _ in range(2):
+            self._current_step = 'test1'
+            self.move_to_relative_position(
+                dx=0.1,  
+                dy=0.1,  
+                roll=math.radians(-45), 
+                pitch=math.radians(45),  
+                name='test1'
+            )
+            self._current_step = 'test2'
+            self.move_to_relative_position(
+                dx=-0.1, 
+                dy=0.1,  
+                roll=math.radians(-45), 
+                pitch=math.radians(-45), 
+                name='test2'
+            )
+            self._current_step = 'test3'
+            self.move_to_relative_position(
+                dx=-0.1, 
+                dy=-0.1, 
+                roll=math.radians(45), 
+                pitch=math.radians(-45), 
+                name='test3'
+            )
+            self._current_step = 'test4'
+            self.move_to_relative_position(
+                dx=0.1,  
+                dy=-0.1, 
+                roll=math.radians(45),  
+                pitch=math.radians(45),  
+                name='test4'
+            )
+        self._current_step = 'Start'
         self.move_to_joint_position(START_JOINT_POSITION, 'Start')
+        self._current_step = 'Place-Down'
         self.move_to_relative_position(dz=-0.30, name='Place-Down')
-        #vaccum off
+        #vaccum(false)
+        self.digital_out.set_output(channel=0, state=False)
+        #
+        self._current_step = 'Place-Up'
         self.move_to_relative_position(dz=0.30, name='Place-Up')
+        self._current_step = 'Home'
         self.move_to_joint_position(HOME_POSITION, 'Home')
 
         self.get_logger().info('=== Pick & Place erfolgreich beendet ===')
