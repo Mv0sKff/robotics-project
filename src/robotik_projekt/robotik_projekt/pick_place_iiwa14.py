@@ -32,26 +32,26 @@ HOME_POSITION = [0.0] * 7
 
 START_JOINT_POSITION = [
     0.0,
-    math.radians(30),
+    math.radians(15),
     0.0,
     math.radians(-90),
     0.0,
-    math.radians(60),
+    math.radians(75),
     0.0,
 ]
 
 PICK_JOINT_POSITION = [
     math.radians(30),
-    math.radians(30),
+    math.radians(15),
     0.0,
     math.radians(-90),
     0.0,
-    math.radians(60),
+    math.radians(75),
     0.0,
 ]
 
-MAX_VELOCITY     = 1.00
-MAX_ACCELERATION = 1.00
+MAX_VELOCITY     = 0.15
+MAX_ACCELERATION = 0.15
 WAIT_TIMEOUT     = 10.0   # Sekunden fuer Joint-State- und TF-Wartezeit
 
 # -----------------------------------------------------------------------------
@@ -218,7 +218,7 @@ class PickPlace(Node):
         p = pitch if pitch is not None else current_rpy[1]
         y = yaw   if yaw   is not None else current_rpy[2]
         return Rotation.from_euler('xyz', [r, p, y]).as_quat().tolist()
-    
+
     def _apply_rotation_relativ(self, current_quat: list[float], roll: float = 0.0, pitch: float = 0.0,  yaw: float = 0.0) -> list[float]:
         '''Addiert Winkel auf aktuelle Orientierung drauf.'''
         current_rpy = Rotation.from_quat(current_quat).as_euler('xyz')
@@ -282,10 +282,10 @@ class PickPlace(Node):
     def run_job(self) -> int:
         self.get_logger().info('=== Pick & Place gestartet ===')
 
-        if not self._wait_for_joint_states():
-            return 1
-        if not self._wait_for_tf():
-            return 1
+        #if not self._wait_for_joint_states():
+        #    return 1
+        #if not self._wait_for_tf():
+        #    return 1
         self._current_step = 'home'
         self.move_to_joint_position(HOME_POSITION, 'Home')
         self._current_step = 'Start'
@@ -293,64 +293,69 @@ class PickPlace(Node):
         self._current_step = 'Pick'
         self.move_to_joint_position(PICK_JOINT_POSITION, 'Pick')
         self._current_step = 'Pick-Down'
-        self.move_to_relative_position(dz=-0.30, name='Pick-Down')
+        self.move_to_relative_position(dz=-0.10, name='Pick-Down')
         #vaccum(true)
-        self.digital_out.set_output(channel=0, state=True)
+        self.digital_out.set_output(channel=3, state=True)
         #
         self._current_step = 'Pick-Up'
-        self.move_to_relative_position(dz=0.30, name='Pick-Up')
+        self.move_to_relative_position(dz=0.10, name='Pick-Up')
         self._current_step = 'Start'
         self.move_to_joint_position(START_JOINT_POSITION, 'Start')
-        self._current_step = 'test0'
-        self.move_to_relative_position(
-            dx=0.0,  
-            dy=-0.1, 
-            roll=math.radians(45),  
-            pitch=math.radians(0),   
-            name='test0'
-        )
-        for _ in range(2):
+        #self._current_step = 'test0'
+        #self.move_to_relative_position(
+        #    dx=0.0,
+        #    dy=0.0,
+        #    roll=math.radians(30),
+        #    pitch=math.radians(0),
+        #    name='test0'
+        #)
+        #self.move_to_joint_position(START_JOINT_POSITION, 'Start')
+        for _ in range(1):
             self._current_step = 'test1'
             self.move_to_relative_position(
-                dx=0.1,  
-                dy=0.1,  
-                roll=math.radians(-45), 
-                pitch=math.radians(45),  
+                dx=0.0,
+                dy=0.0,
+                roll=math.radians(0),
+                pitch=math.radians(30),
                 name='test1'
             )
+            self.move_to_joint_position(START_JOINT_POSITION, 'Start')
             self._current_step = 'test2'
             self.move_to_relative_position(
-                dx=-0.1, 
-                dy=0.1,  
-                roll=math.radians(-45), 
-                pitch=math.radians(-45), 
+                dx=0.0,
+                dy=0.0,
+                roll=math.radians(-30),
+                pitch=math.radians(0),
                 name='test2'
             )
+            self.move_to_joint_position(START_JOINT_POSITION, 'Start')
             self._current_step = 'test3'
             self.move_to_relative_position(
-                dx=-0.1, 
-                dy=-0.1, 
-                roll=math.radians(45), 
-                pitch=math.radians(-45), 
+                dx=0.0,
+                dy=0.0,
+                roll=math.radians(0),
+                pitch=math.radians(-30),
                 name='test3'
             )
+            self.move_to_joint_position(START_JOINT_POSITION, 'Start')
             self._current_step = 'test4'
             self.move_to_relative_position(
-                dx=0.1,  
-                dy=-0.1, 
-                roll=math.radians(45),  
-                pitch=math.radians(45),  
+                dx=0.0,
+                dy=0.0,
+                roll=math.radians(30),
+                pitch=math.radians(0),
                 name='test4'
             )
+            self.move_to_joint_position(START_JOINT_POSITION, 'Start')
         self._current_step = 'Start'
         self.move_to_joint_position(START_JOINT_POSITION, 'Start')
         self._current_step = 'Place-Down'
-        self.move_to_relative_position(dz=-0.30, name='Place-Down')
+        self.move_to_relative_position(dz=-0.10, name='Place-Down')
         #vaccum(false)
-        self.digital_out.set_output(channel=0, state=False)
+        self.digital_out.set_output(channel=3, state=False)
         #
         self._current_step = 'Place-Up'
-        self.move_to_relative_position(dz=0.30, name='Place-Up')
+        self.move_to_relative_position(dz=0.10, name='Place-Up')
         self._current_step = 'Home'
         self.move_to_joint_position(HOME_POSITION, 'Home')
 

@@ -61,3 +61,34 @@ colcon build --packages-select robotik_projekt
 source install/setup.bash
 ros2 run robotik_projekt pick_place_node --ros-args -r __ns:=/lbr
 ```
+
+## Run pick_place_iiwa14 on Hardware
+
+`pick_place_iiwa14` uses **pymoveit2** and requires `move_group` to be running.
+
+### Start LBRServer on Robot
+
+### Terminal 1 – Hardware controller
+
+```sh
+ros2 launch lbr_bringup hardware.launch.py \
+    ctrl:=joint_trajectory_controller \
+    model:=iiwa14
+```
+
+### Terminal 2 – MoveGroup (required for pymoveit2)
+
+```sh
+ros2 launch lbr_bringup move_group.launch.py \
+    model:=iiwa14 \
+    mode:=hardware \
+    rviz:=false
+```
+
+### Terminal 3 – Run the node
+
+```sh
+colcon build --packages-select robotik_projekt
+source install/setup.bash
+ros2 run robotik_projekt pick_place_iiwa14 --ros-args -r __ns:=/lbr
+```
