@@ -1,9 +1,7 @@
 import math
 import threading
 import time
-from pathlib import Path
-import csv
-from datetime import datetime
+
 from lbr_fri_idl.msg import LBRState
 #from build.lbr_fri_idl.ament_cmake_python.lbr_fri_idl.lbr_fri_idl.msg._lbr_state import LBRState
 import rclpy
@@ -16,169 +14,28 @@ import tf2_ros
 from pymoveit2 import MoveIt2
 from sensor_msgs.msg import JointState
 from scipy.spatial.transform import Rotation
-from std_srvs.srv import SetBool
 
-# -----------------------------------------------------------------------------
-# Configuration
-# -----------------------------------------------------------------------------
-
-BASE_LINK       = 'lbr_link_0'
-END_EFFECTOR    = 'lbr_link_ee'
-GROUP_NAME      = 'arm'
-
-JOINT_NAMES = ['lbr_A1', 'lbr_A2', 'lbr_A3', 'lbr_A4', 'lbr_A5', 'lbr_A6', 'lbr_A7']
-
-HOME_POSITION = [0.0] * 7
-
-START_JOINT_POSITION = [
-    0.0,
-    math.radians(15),
-    0.0,
-    math.radians(-90),
-    0.0,
-    math.radians(75),
-    0.0,
-]
-
-PICK_JOINT_POSITION = [
-    math.radians(30),
-    math.radians(15),
-    0.0,
-    math.radians(-90),
-    0.0,
-    math.radians(75),
-    0.0,
-]
-
-MAX_VELOCITY     = 0.15
-MAX_ACCELERATION = 0.15
-WAIT_TIMEOUT     = 10.0   # Seconds for joint-state and TF wait time
-
-# I/O Configuration
-
-OUTPUT_CHANNELS = 4
-OUTPUT_SERVICE_NAME_TEMPLATE = '/lbr/digital_output/ch{channel}/set'
-DIGITAL_OUTPUT_TIMEOUT = 5.0
-DIGITAL_OUTPUT_CONTINUE_WAIT = 1.0
-DIGITAL_OUTPUT_REQUIRED = False
-DATA_RECORDING_SETTLE_TIME = 0.2
-DATA_RECORDING_SAMPLE_TIMEOUT = 1.0
-
-# -----------------------------------------------------------------------------
-# Digital Output Client
-# -----------------------------------------------------------------------------
-
-class DigitalOutputClient:
-    '''General client for switching digital outputs.'''
-
-    def __init__(
-        self,
-        node: Node,
-        callback_group,
-        num_channels: int = 4,
-        service_name_template: str = '/lbr/digital_output/ch{channel}/set',
-    ):
-        self._node = node
-        self._num_channels = num_channels
-        self._service_name_template = service_name_template
-        self._states: dict[int, bool] = {ch: False for ch in range(1, num_channels + 1)}
-        self._clients = {
-            ch: self._node.create_client(
-                SetBool,
-                self._service_name(channel=ch),
-                callback_group=callback_group,
-            )
-            for ch in self._states
-        }
-
-    def wait_for_service(self, channel: int, timeout_sec: float = 5.0, log_error: bool = True) -> bool:
-        '''Wait until the digital-output service is available.'''
-        client = self._clients.get(channel)
-        if client is None:
-            if log_error:
-                self._node.get_logger().error(f'Digital-Output ch={channel} Service client is missing')
-            return False
-        service_name = self._service_name(channel)
-        self._node.get_logger().info(f'Waiting for digital-output service: {service_name}')
-        if not client.wait_for_service(timeout_sec=timeout_sec):
-            if log_error:
-                self._node.get_logger().error(
-                    f'Digital-Output ch={channel} Service not available: {service_name}'
-                )
-            return False
-        return True
-
-    def set_output(self, channel: int, state: bool, timeout_sec: float = 2.0) -> bool:
-        '''Switches a digital output.'''
-        if channel not in self._states:
-            self._node.get_logger().error(
-                f'Digital-Output ch={channel} does not exist. Valid channels: 1..{self._num_channels}'
-            )
-            return False
-
-        self._node.get_logger().info(
-            f'Digital-Output ch={channel} → {"ON" if state else "OFF"}'
-        )
-        if not self._call_service(channel, state, timeout_sec=timeout_sec):
-            return False
-
-        self._states[channel] = state
-        return True
-
-    def get_output(self, channel: int) -> bool | None:
-        '''Returns the last set state of a channel.'''
-        return self._states.get(channel)
-
-    def _service_name(self, channel: int) -> str:
-        return self._service_name_template.format(channel=channel)
-
-    def _call_service(self, channel: int, state: bool, timeout_sec: float = 2.0) -> bool:
-        client = self._clients.get(channel)
-        if client is None:
-            self._node.get_logger().error(
-                f'Digital-Output ch={channel} Service client is missing'
-            )
-            return False
-
-        if not client.wait_for_service(timeout_sec=timeout_sec):
-            self._node.get_logger().error(
-                f'Digital-Output ch={channel} Service not available: {self._service_name(channel)}'
-            )
-            return False
-
-        req = SetBool.Request()
-        req.data = state
-        future = client.call_async(req)
-
-        deadline = time.time() + timeout_sec
-        while rclpy.ok() and not future.done() and time.time() < deadline:
-            time.sleep(0.01)
-
-        if not future.done():
-            self._node.get_logger().error(
-                f'Digital-Output ch={channel} Service-Timeout'
-            )
-            return False
-
-        try:
-            resp = future.result()
-        except Exception as exc:
-            self._node.get_logger().error(
-                f'Digital-Output ch={channel} Service error: {exc}'
-            )
-            return False
-
-        if resp is None:
-            self._node.get_logger().error(
-                f'Digital-Output ch={channel} Service error'
-            )
-            return False
-
-        if not resp.success:
-            self._node.get_logger().error(
-                f'Digital-Output ch={channel} not switched: {resp.message}'
-            )
-        return resp.success
+from robotik_projekt.digital_output import DigitalOutputClient
+from robotik_projekt.pick_place_iiwa14_config import (
+    BASE_LINK,
+    DATA_RECORDING_SAMPLE_TIMEOUT,
+    DATA_RECORDING_SETTLE_TIME,
+    DIGITAL_OUTPUT_CONTINUE_WAIT,
+    DIGITAL_OUTPUT_REQUIRED,
+    DIGITAL_OUTPUT_TIMEOUT,
+    END_EFFECTOR,
+    GROUP_NAME,
+    HOME_POSITION,
+    JOINT_NAMES,
+    MAX_ACCELERATION,
+    MAX_VELOCITY,
+    OUTPUT_CHANNELS,
+    OUTPUT_SERVICE_NAME_TEMPLATE,
+    PICK_JOINT_POSITION,
+    START_JOINT_POSITION,
+    WAIT_TIMEOUT,
+)
+from robotik_projekt.torque_logger import TorqueLogger
 
 # -----------------------------------------------------------------------------
 # Node
@@ -221,32 +78,12 @@ class PickPlace(Node):
             service_name_template=OUTPUT_SERVICE_NAME_TEMPLATE,
         )
 
-        # Log CSV file
-        self._current_step = 'init'
-        self._axis_torque = [0.00] * 7
-        self._last_lbr_state_time = 0.0
-        self._data_recording_lock = threading.Lock()
-        self.data_recording_settle_time = DATA_RECORDING_SETTLE_TIME
-        self.data_recording_sample_timeout = DATA_RECORDING_SAMPLE_TIMEOUT
+        self.torque_logger = TorqueLogger(
+            node=self,
+            data_recording_settle_time=DATA_RECORDING_SETTLE_TIME,
+            data_recording_sample_timeout=DATA_RECORDING_SAMPLE_TIMEOUT,
+        )
         self.create_subscription(LBRState, '/lbr/lbr_state', self._on_lbr_state, 10)
-
-        log_dir  = Path.cwd() / 'log' / 'torque_logs'
-        Path.mkdir(log_dir, parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self._csv_file_path = log_dir / f'torque_{timestamp}.csv'
-        self._data_recording_csv_file_path = log_dir / f'data_recording_{timestamp}.csv'
-
-        with open(self._csv_file_path, mode='w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['timestamp', 'step'] + [f'A_{i+1}' for i in range(7)])
-        self.get_logger().info(f'Touque-Log: {self._csv_file_path}')
-
-        with open(self._data_recording_csv_file_path, mode='w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(
-                ['timestamp', 'step'] + [f'A_{i+1}' for i in range(7)]
-            )
-        self.get_logger().info(f'Data-recording torque log: {self._data_recording_csv_file_path}')
 
     # -------------------------------------------------------------------------
     # Callbacks & Helper Methods
@@ -326,42 +163,10 @@ class PickPlace(Node):
         return Rotation.from_euler('xyz', [r, p, y]).as_quat().tolist()
 
     def _on_lbr_state(self, msg: LBRState):
-        axis_torque = list(msg.external_torque)
-        with self._data_recording_lock:
-            self._axis_torque = axis_torque
-            self._last_lbr_state_time = time.time()
-        self._log_torque(self._current_step, axis_torque)
-
-    def _log_torque(self, step: str, axis_torque: list[float]):
-        row = [f'{time.time():.3f}', step] + [f'{t:.4f}' for t in axis_torque]
-        with open(self._csv_file_path, mode='a', newline='') as f:
-            csv.writer(f).writerow(row)
+        self.torque_logger.on_lbr_state(msg)
 
     def record_data_point(self, step: str) -> bool:
-        if self.data_recording_settle_time > 0.0:
-            time.sleep(self.data_recording_settle_time)
-
-        request_time = time.time()
-        deadline = request_time + self.data_recording_sample_timeout
-        axis_torque = None
-
-        while rclpy.ok() and time.time() < deadline:
-            with self._data_recording_lock:
-                if self._last_lbr_state_time >= request_time:
-                    axis_torque = list(self._axis_torque)
-                    break
-            time.sleep(0.01)
-
-        if axis_torque is None:
-            self.get_logger().error(f'No current LBRState sample received for {step}')
-            return False
-
-        row = [f'{time.time():.3f}', step] + [f'{value:.4f}' for value in axis_torque]
-        with open(self._data_recording_csv_file_path, mode='a', newline='') as f:
-            csv.writer(f).writerow(row)
-
-        self.get_logger().info(f'[{step}] current data-recording values saved')
-        return True
+        return self.torque_logger.record_data_point(step)
 
     # -------------------------------------------------------------------------
     # Movement Commands
@@ -370,7 +175,7 @@ class PickPlace(Node):
     def move_to_joint_position(self, joint_positions: list[float], name: str = ''):
         '''Moves to a joint position (values ​​in radians).'''
         # set log step for torque logging
-        self._current_step = name
+        self.torque_logger.set_step(name)
 
         self.get_logger().info(
             f'[{name}] joint position = '
@@ -383,7 +188,7 @@ class PickPlace(Node):
     def move_to_base_position(self, x: float, y: float, z: float, roll: float = None, pitch: float = None, yaw: float = None, name: str = ''):
         '''Position and Rotation absolute in the BASE_LINK-Frame.'''
         # set log step for torque logging
-        self._current_step = name
+        self.torque_logger.set_step(name)
 
         _, current_quat = self._get_ee_pose()
         target_quat = self._apply_rotation_absolut(current_quat, roll, pitch, yaw)
@@ -396,7 +201,7 @@ class PickPlace(Node):
     def move_to_relative_position(self, dx: float = 0.0, dy: float = 0.0, dz: float = 0.0, roll: float = 0.0, pitch: float = 0.0, yaw: float = 0.0, name: str = ''):
         '''Position and Rotation relative to the current EE pose.'''
         # set log step for torque logging
-        self._current_step = name
+        self.torque_logger.set_step(name)
 
         current_pos, current_quat = self._get_ee_pose()
         target = [current_pos[0] + dx, current_pos[1] + dy, current_pos[2] + dz]
@@ -449,24 +254,18 @@ class PickPlace(Node):
         #    return 1
         #if not self._wait_for_tf():
         #    return 1
-        #self._current_step = 'home'
+
         self.move_to_joint_position(HOME_POSITION, 'home')
-        #self._current_step = 'start'
         self.move_to_joint_position(START_JOINT_POSITION, 'start')
-        #self._current_step = 'pick'
         self.move_to_joint_position(PICK_JOINT_POSITION, 'pick')
-        #self._current_step = 'pick-down'
         self.move_to_relative_position(dz=-0.10, name='pick-down')
-        # -------
+
         if not self.set_digital_output(3, True):
             return 1
-        # -------
-        #self._current_step = 'pick-up'
+
         self.move_to_relative_position(dz=0.10, name='pick-up')
-        # -------
-        #self._current_step = 'start'
         self.move_to_joint_position(START_JOINT_POSITION, 'start')
-        #self._current_step = 'data_recording_front'
+
         self.move_to_relative_position(
             dx=0.0,
             dy=0.0,
@@ -475,9 +274,8 @@ class PickPlace(Node):
             name='data_recording_front'
         )
         self.record_data_point('data_recording_front')
-        # -------
+
         self.move_to_joint_position(START_JOINT_POSITION, 'start')
-        #self._current_step = 'data_recording_left'
         self.move_to_relative_position(
             dx=0.0,
             dy=0.0,
@@ -486,9 +284,8 @@ class PickPlace(Node):
             name='data_recording_left'
         )
         self.record_data_point('data_recording_left')
-        # -------
+
         self.move_to_joint_position(START_JOINT_POSITION, 'start')
-        #self._current_step = 'data_recording_right'
         self.move_to_relative_position(
             dx=0.0,
             dy=0.0,
@@ -497,9 +294,8 @@ class PickPlace(Node):
             name='data_recording_right'
         )
         self.record_data_point('data_recording_right')
-        # -------
+
         self.move_to_joint_position(START_JOINT_POSITION, 'start')
-        #self._current_step = 'data_recording_back'
         self.move_to_relative_position(
             dx=0.0,
             dy=0.0,
@@ -508,19 +304,15 @@ class PickPlace(Node):
             name='data_recording_back'
         )
         self.record_data_point('data_recording_back')
-        # -------
+
         self.move_to_joint_position(START_JOINT_POSITION, 'start')
-        #self._current_step = 'start'
         self.move_to_joint_position(START_JOINT_POSITION, 'start')
-        #self._current_step = 'place-down'
         self.move_to_relative_position(dz=-0.10, name='place-down')
-        # -------
+
         if not self.set_digital_output(3, False):
             return 1
-        # -------
-        #self._current_step = 'place-up'
+
         self.move_to_relative_position(dz=0.10, name='place-up')
-        #self._current_step = 'home'
         self.move_to_joint_position(HOME_POSITION, 'home')
 
         self.get_logger().info('=== Pick & Place successfully completed ===')
