@@ -62,7 +62,7 @@ class ProcessManager:
         f = open(path, "w", encoding="utf-8")
         self._logs.append(f)
         return f, path
-
+    
     # -- Prozesse starten -----------------------------------------------------
 
     def run_blocking(self, command: str, log_name: str, status=None) -> int:
@@ -263,17 +263,9 @@ class RobotikStarterGUI:
         ).pack(side="left")
 
         # Rechts: Status-Label + Buttons
-        self.hw_server_btn = tk.Button(
-            bottom,
-            text=f"▶  Hardware-Server starten\n(ctrl: {HARDWARE_CTRL})",
-            command=self.start_hardware_server,
-            bg="#8a3d00", fg="white", width=26, height=2,
-        )
-        self.hw_server_btn.pack(side="right", padx=(8, 0))
-
         self.hw_btn = tk.Button(
             bottom,
-            text="▶  Auf Hardware starten\n(pick_place_node)",
+            text=f"▶  Auf Hardware starten\n(ctrl: {HARDWARE_CTRL})",
             command=self.start_selected_hardware,
             bg="#b85c00", fg="white", width=26, height=2,
         )
@@ -285,8 +277,8 @@ class RobotikStarterGUI:
             command=self.start_selected_mock,
             bg="#006400", fg="white", width=20, height=2,
         )
-        self.mock_btn.pack(side="right", padx=(8, 0))
-
+        self.mock_btn.pack(side="right", padx=(8, 0))        
+        
         self.status_label = tk.Label(bottom, text="Bereit")
         self.status_label.pack(side="right", padx=(12, 0))
 
@@ -328,7 +320,6 @@ class RobotikStarterGUI:
     def _set_buttons(self, state: str):
         self.mock_btn.configure(state=state)
         self.hw_btn.configure(state=state)
-        self.hw_server_btn.configure(state=state)
 
     def _reset_buttons(self):
         self._set_buttons("normal")
@@ -347,23 +338,11 @@ class RobotikStarterGUI:
 
     # -- Hardware-Start -------------------------------------------------------
 
-    def start_hardware_server(self):
-        if self._hw_proc and self._hw_proc.poll() is None:
-            messagebox.showinfo("Läuft bereits", "Der Hardware-Server läuft bereits.")
+    def start_selected_hardware(self):
+        exe = self._get_selected_exe()
+        if not exe:
             return
 
-        self.status_label.configure(text="Hardware-Server")
-        self._set_buttons("disabled")
-
-        hw_cmd = (
-            f"ros2 launch lbr_bringup hardware.launch.py "
-            f"ctrl:={HARDWARE_CTRL} model:={ROBOT_MODEL}"
-        )
-        self.log(f"[Hardware] Starte Server: {hw_cmd}")
-        self._hw_proc = pm.start_background(hw_cmd, "hardware_launch", self.log)
-        self._reset_buttons()
-
-    def start_selected_hardware(self):
         # Sicherheitswarnung (laut Doku: immer zuerst T1-Modus!)
         confirmed = messagebox.askyesno(
             "⚠  Hardware – Sicherheitshinweis",
@@ -374,21 +353,34 @@ class RobotikStarterGUI:
         if not confirmed:
             return
 
-        self.status_label.configure(text="Hardware: pick_place_node")
+        self.status_label.configure(text=f"Hardware: {exe}")
         self._set_buttons("disabled")
 
-        build_cmd = (
-            f"source /opt/ros/{ROS_DISTRO}/setup.bash && "
-            f"colcon build --packages-select {PACKAGE_NAME}"
+        # Vorherigen Hardware-Launch stoppen falls noch aktiv
+        if self._hw_proc and self._hw_proc.poll() is None:
+            self.log("[Hardware] Stoppe alten Treiber-Prozess ...")
+            pm.terminate(self._hw_proc)
+
+        # hardware.launch.py starten (ersetzt mock.launch.py)
+        hw_cmd = (
+            f"ros2 launch lbr_bringup hardware.launch.py "
+            f"ctrl:={HARDWARE_CTRL} model:={ROBOT_MODEL}"
         )
-        self.log(f"[Hardware] Baue Paket: {PACKAGE_NAME}")
-        if pm.run_blocking(build_cmd, "build_hardware", self.log) != 0:
-            self.log("[Hardware] Build fehlgeschlagen")
+        self.log(f"[Hardware] Starte Treiber: {hw_cmd}")
+        self._hw_proc = pm.start_background(hw_cmd, "hardware_launch", self.log)
+
+        # Nach Wartezeit Programm starten
+        self.log(f"[Hardware] Warte {WAIT_AFTER_HARDWARE}s bis Treiber bereit ...")
+        self.root.after(WAIT_AFTER_HARDWARE * 1000, lambda: self._launch_hardware_program(exe))
+
+    def _launch_hardware_program(self, exe: str):
+        """Startet das Programm nach dem Hardware-Wartezeit-Delay."""
+        if self._hw_proc and self._hw_proc.poll() is not None:
+            self.log("[Hardware] ⚠ Treiber-Prozess unerwartet beendet – Abbruch.")
             self._reset_buttons()
             return
-
-        self.log("[Hardware] Starte pick_place_node")
-        self._launch_program("pick_place_node")
+        self.log("[Hardware] Treiber bereit – starte Programm.")
+        self._launch_program(exe)
 
     # -- Prozess-Monitor ------------------------------------------------------
 
