@@ -62,12 +62,13 @@ class TorqueLogger:
         deadline = request_time + self.data_recording_sample_timeout
         axis_torque = None
 
-        while rclpy.ok() and time.time() < deadline:
-            with self._lock:
-                if self._last_lbr_state_time >= request_time:
-                    axis_torque = list(self._axis_torque)
-                    break
-            time.sleep(0.01)
+        #while rclpy.ok() and time.time() < deadline:
+        #    with self._lock:
+        #        if self._last_lbr_state_time >= request_time:
+        axis_torque = list(self._axis_torque)
+        print(f'Current axis torque: {axis_torque}')
+        #            break
+        #    time.sleep(0.01)
 
         if axis_torque is None:
             self._node.get_logger().error(f'No current LBRState sample received for {step}')
