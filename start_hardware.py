@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Starter nur fuer die echte Roboterverbindung."""
+"""Launcher for the real robot hardware connection."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from tkinter.scrolledtext import ScrolledText
 
 from starter_common import (
     HARDWARE_CTRL,
-    LOG_DIR,
     MOVE_GROUP_READY_TIMEOUT,
     NAMESPACE,
     PACKAGE_NAME,
@@ -46,30 +45,30 @@ class HardwareStarterGUI:
         self._robot_proc = None
         self._robot_name: str | None = None
 
-        root.title("Robotik Hardware Starter")
+        root.title("Robotics Hardware Launcher")
         root.geometry("900x600")
         root.protocol("WM_DELETE_WINDOW", self.on_exit)
 
+        self._setup_konami()
         self._build_ui()
         self._poll_dead_procs()
-        self.log(f"Logs: {LOG_DIR}")
-        self.log("Hardware-Starter bereit. Es wird kein Mock gestartet.")
+        self.log("Hardware starter ready. ROS commands open in visible terminal windows.")
 
     def _build_ui(self):
         tk.Label(
             self.root,
-            text="Robotik-Projekt: Echte Hardware",
+            text="Robotics Project: Real Hardware",
             font=("Arial", 16, "bold"),
         ).pack(padx=12, pady=(12, 4), anchor="w")
 
         tk.Label(
             self.root,
-            text=f"Workspace: {WORKSPACE}   |   Paket: {PACKAGE_NAME}   |   Modell: {ROBOT_MODEL}   |   NS: {NAMESPACE}   |   Ctrl: {HARDWARE_CTRL}",
+            text=f"Workspace: {WORKSPACE}   |   Package: {PACKAGE_NAME}   |   Model: {ROBOT_MODEL}   |   NS: {NAMESPACE}   |   Ctrl: {HARDWARE_CTRL}",
             justify="left",
         ).pack(padx=12, pady=(0, 8), anchor="w")
 
         checklist = (
-            "smartPAD: LBRServer starten | T1-Modus | FRI send period 10 ms | "
+            "smartPAD: start LBRServer | T1 mode | FRI send period 10 ms | "
             "FRI control mode POSITION_CONTROL | FRI client command mode POSITION"
         )
         tk.Label(self.root, text=checklist, justify="left", fg="#8a3d00").pack(
@@ -81,7 +80,7 @@ class HardwareStarterGUI:
 
         left = tk.Frame(main)
         left.pack(side="left", fill="both")
-        tk.Label(left, text="Roboterprogramme").pack(anchor="w")
+        tk.Label(left, text="Robot programs").pack(anchor="w")
         self.listbox = tk.Listbox(left, width=42, height=16)
         self.listbox.pack(fill="y")
         for exe in self.executables:
@@ -93,7 +92,7 @@ class HardwareStarterGUI:
 
         right = tk.Frame(main)
         right.pack(side="right", fill="both", expand=True, padx=(14, 0))
-        tk.Label(right, text="Status / Hinweise").pack(anchor="w")
+        tk.Label(right, text="Status / Notes").pack(anchor="w")
         self.status_text = ScrolledText(right, height=16, state="disabled")
         self.status_text.pack(fill="both", expand=True)
 
@@ -102,7 +101,7 @@ class HardwareStarterGUI:
 
         tk.Button(
             bottom,
-            text="Alles beenden",
+            text="Stop all",
             command=self.on_exit,
             bg="#b00020",
             fg="white",
@@ -112,7 +111,7 @@ class HardwareStarterGUI:
 
         self.start_btn = tk.Button(
             bottom,
-            text="Programm starten",
+            text="Start program",
             command=self.start_selected,
             bg="#b85c00",
             fg="white",
@@ -123,7 +122,7 @@ class HardwareStarterGUI:
 
         self.server_btn = tk.Button(
             bottom,
-            text="Hardware verbinden",
+            text="Connect hardware",
             command=self.start_hardware_server,
             bg="#8a3d00",
             fg="white",
@@ -134,14 +133,14 @@ class HardwareStarterGUI:
 
         self.stop_btn = tk.Button(
             bottom,
-            text="Hardware stoppen",
+            text="Stop hardware",
             command=self.stop_hardware,
             width=22,
             height=2,
         )
         self.stop_btn.pack(side="right", padx=(8, 0))
 
-        self.status_label = tk.Label(bottom, text="Nicht verbunden")
+        self.status_label = tk.Label(bottom, text="Not connected")
         self.status_label.pack(side="right", padx=(12, 0))
 
     def log(self, text: str):
@@ -159,34 +158,67 @@ class HardwareStarterGUI:
         self.server_btn.configure(state=state)
         self.stop_btn.configure(state=state)
 
+    def _setup_konami(self):
+        self._konami = ["Up", "Up", "Down", "Down", "Left", "Right", "Left", "Right", "a", "b"]
+        self._buf: list[str] = []
+        self.root.bind_all("<KeyPress>", self._on_key)
+
+    def _on_key(self, event):
+        key = event.keysym.lower() if event.keysym.lower() in ("a", "b") else event.keysym
+        self._buf = (self._buf + [key])[-len(self._konami):]
+        if self._buf == self._konami:
+            self._buf.clear()
+            self._praise_the_sun()
+
+    def _praise_the_sun(self):
+        import random
+
+        msgs = ["Praise the Sun", "☀ Praise the Sun ☀", "\\[T]/"]
+        labels = [
+            tk.Label(
+                self.root,
+                text=random.choice(msgs),
+                font=("Arial", random.randint(12, 28), "bold"),
+                bg="yellow",
+                fg="black",
+            )
+            for _ in range(77)
+        ]
+        for lbl in labels:
+            lbl.place(
+                x=random.randint(0, max(1, self.root.winfo_width() - 180)),
+                y=random.randint(0, max(1, self.root.winfo_height() - 40)),
+            )
+        self.root.after(10_000, lambda: [lbl.destroy() for lbl in labels])
+
     def _get_selected_exe(self) -> str | None:
         if is_running(self._robot_proc):
-            messagebox.showinfo("Laeuft bereits", "Warte bis das aktuelle Programm beendet ist.")
+            messagebox.showinfo("Already running", "Wait until the current program has finished.")
             return None
         sel = self.listbox.curselection()
         if not sel:
-            messagebox.showwarning("Keine Auswahl", "Bitte waehle zuerst ein Programm aus.")
+            messagebox.showwarning("No selection", "Please select a program first.")
             return None
         return self.listbox.get(sel[0])
 
     def _confirm_hardware(self) -> bool:
         return messagebox.askyesno(
-            "Hardware verbinden",
-            "Bitte auf dem smartPAD zuerst LBRServer starten.\n\n"
-            "Einstellungen laut Doku:\n"
+            "Connect hardware",
+            "Please start LBRServer on the smartPAD first.\n\n"
+            "Settings according to the documentation:\n"
             "- FRI send period: 10 ms\n"
             "- FRI control mode: POSITION_CONTROL\n"
             "- FRI client command mode: POSITION\n\n"
-            "Danach wartet dieser Starter auf eine stabile Verbindung.",
+            "After that, this starter waits for a stable connection.",
             icon="warning",
         )
 
     def start_hardware_server(self):
         if is_running(self._hw_proc):
-            self.log("[Hardware] Server laeuft bereits. Pruefe Verbindung ...")
+            self.log("[Hardware] Server is already running. Checking connection ...")
             self._set_buttons("disabled")
             ready = self._wait_until_ready()
-            self.status_label.configure(text="Verbunden" if ready else "Nicht bereit")
+            self.status_label.configure(text="Connected" if ready else "Not ready")
             self._set_buttons("normal")
             return
 
@@ -194,34 +226,34 @@ class HardwareStarterGUI:
             return
 
         self._set_buttons("disabled")
-        self.status_label.configure(text="Verbinde ...")
+        self.status_label.configure(text="Connecting ...")
         command = hardware_launch_command()
-        self.log(f"[Hardware] Starte: {command}")
-        self._hw_proc = pm.start_background(command, "hardware_launch", self.log)
+        self.log(f"[Hardware] Starting: {command}")
+        self._hw_proc = pm.start_terminal(command, "Hardware Launch", self.log)
         time.sleep(WAIT_AFTER_HARDWARE)
 
         ready = self._wait_until_ready()
-        self.status_label.configure(text="Verbunden" if ready else "Nicht bereit")
+        self.status_label.configure(text="Connected" if ready else "Not ready")
         self._set_buttons("normal")
 
     def _wait_until_ready(self) -> bool:
         if not wait_for_lbr_state(pm, self.log):
-            self.log("[Hardware] Keine stabile FRI-Verbindung. LBRServer pruefen oder neu starten.")
+            self.log("[Hardware] No stable FRI connection. Check or restart LBRServer.")
             return False
         if not wait_for_controller_active(HARDWARE_CTRL, self.log):
-            self.log("[Hardware] Controller sind nicht aktiv.")
+            self.log("[Hardware] Controllers are not active.")
             return False
-        self.log("[Hardware] Verbindung stabil. Programme koennen gestartet werden.")
+        self.log("[Hardware] Connection is stable. Programs can be started.")
         return True
 
     def _ensure_hardware_ready(self) -> bool:
         if not is_running(self._hw_proc):
             if not self._confirm_hardware():
                 return False
-            self.status_label.configure(text="Verbinde ...")
+            self.status_label.configure(text="Connecting ...")
             command = hardware_launch_command()
-            self.log(f"[Hardware] Starte: {command}")
-            self._hw_proc = pm.start_background(command, "hardware_launch", self.log)
+            self.log(f"[Hardware] Starting: {command}")
+            self._hw_proc = pm.start_terminal(command, "Hardware Launch", self.log)
             time.sleep(WAIT_AFTER_HARDWARE)
         return self._wait_until_ready()
 
@@ -230,8 +262,8 @@ class HardwareStarterGUI:
             return wait_for_node(f"{NAMESPACE}/move_group", MOVE_GROUP_READY_TIMEOUT, self.log)
 
         command = hardware_move_group_command(rviz=False)
-        self.log(f"[MoveIt] Starte fuer Hardware: {command}")
-        self._moveit_proc = pm.start_background(command, "move_group_hardware", self.log)
+        self.log(f"[MoveIt] Starting for hardware: {command}")
+        self._moveit_proc = pm.start_terminal(command, "MoveIt Hardware", self.log)
         return wait_for_node(f"{NAMESPACE}/move_group", MOVE_GROUP_READY_TIMEOUT, self.log)
 
     def start_selected(self):
@@ -240,42 +272,42 @@ class HardwareStarterGUI:
             return
 
         confirmed = messagebox.askyesno(
-            "Hardware - Sicherheitshinweis",
-            "Du startest auf dem echten Roboter.\n\n"
-            "Bitte nur in T1 testen, Arbeitsraum frei halten und Not-Halt griffbereit haben.\n\n"
-            "Fortfahren?",
+            "Hardware - Safety Notice",
+            "You are starting on the real robot.\n\n"
+            "Test only in T1, keep the workspace clear, and keep the emergency stop within reach.\n\n"
+            "Continue?",
             icon="warning",
         )
         if not confirmed:
             return
 
         self._set_buttons("disabled")
-        self.status_label.configure(text=f"Starte {exe}")
+        self.status_label.configure(text=f"Starting {exe}")
 
         if not self._ensure_hardware_ready():
             self._set_buttons("normal")
             return
 
-        self.log(f"[Hardware] Baue Paket: {PACKAGE_NAME}")
+        self.log(f"[Hardware] Building package: {PACKAGE_NAME}")
         if not build_project_package(pm, self.log):
-            self.log("[Hardware] Build fehlgeschlagen.")
-            self.status_label.configure(text="Build fehlgeschlagen")
+            self.log("[Hardware] Build failed.")
+            self.status_label.configure(text="Build failed")
             self._set_buttons("normal")
             return
 
         if exe == "pick_place_iiwa14" and not self._ensure_move_group():
-            self.status_label.configure(text="MoveIt nicht bereit")
+            self.status_label.configure(text="MoveIt not ready")
             self._set_buttons("normal")
             return
 
         if not wait_for_lbr_state(pm, self.log):
-            self.log("[Hardware] Verbindung ist vor Programmstart nicht stabil.")
-            self.status_label.configure(text="Verbindung instabil")
+            self.log("[Hardware] Connection is not stable before program start.")
+            self.status_label.configure(text="Connection unstable")
             self._set_buttons("normal")
             return
 
-        self.log(f"[Hardware] Starte {exe}.")
-        self._robot_proc = launch_program(pm, exe, "hardware_program", self.log)
+        self.log(f"[Hardware] Starting {exe} in a terminal window.")
+        self._robot_proc = launch_program(pm, exe, "Hardware Program", self.log)
         self._robot_name = exe
         self.root.after(500, self._monitor)
 
@@ -285,14 +317,14 @@ class HardwareStarterGUI:
             self._robot_proc = None
             self._robot_name = None
         if is_running(self._moveit_proc):
-            self.log("Stoppe MoveIt (Hardware) ...")
+            self.log("Stopping MoveIt (hardware) ...")
             pm.terminate(self._moveit_proc)
         self._moveit_proc = None
         if is_running(self._hw_proc):
-            self.log("Stoppe Hardware-Server ...")
+            self.log("Stopping hardware server ...")
             pm.terminate(self._hw_proc)
         self._hw_proc = None
-        self.status_label.configure(text="Nicht verbunden")
+        self.status_label.configure(text="Not connected")
 
     def _monitor(self):
         if self._robot_proc is None:
@@ -302,28 +334,28 @@ class HardwareStarterGUI:
         if rc is None:
             self.root.after(1000, self._monitor)
             return
-        self.log(f"Programm beendet: {self._robot_name} (Exit {rc})")
+        self.log(f"Program finished: {self._robot_name} (exit {rc})")
         if self._robot_proc in pm._procs:
             pm._procs.remove(self._robot_proc)
         self._robot_proc = None
         self._robot_name = None
-        self.status_label.configure(text="Verbunden" if is_running(self._hw_proc) else "Nicht verbunden")
+        self.status_label.configure(text="Connected" if is_running(self._hw_proc) else "Not connected")
         self._set_buttons("normal")
 
     def _poll_dead_procs(self):
         if self._hw_proc is not None and self._hw_proc.poll() is not None:
-            self.log(f"[Hardware] Server beendet (Exit {self._hw_proc.returncode}). LBRServer ggf. neu starten.")
+            self.log(f"[Hardware] Server exited (exit {self._hw_proc.returncode}). Restart LBRServer if needed.")
             self._hw_proc = None
-            self.status_label.configure(text="Nicht verbunden")
+            self.status_label.configure(text="Not connected")
         if self._moveit_proc is not None and self._moveit_proc.poll() is not None:
-            self.log(f"[MoveIt] Prozess beendet (Exit {self._moveit_proc.returncode}).")
+            self.log(f"[MoveIt] Process exited (exit {self._moveit_proc.returncode}).")
             self._moveit_proc = None
         pm.remove_dead()
         self.root.after(2000, self._poll_dead_procs)
 
     def on_exit(self):
-        if messagebox.askyesno("Alles beenden", "Hardware-Verbindung und alle Programme beenden?"):
-            self.log("Beende alle Prozesse ...")
+        if messagebox.askyesno("Stop all", "Stop the hardware connection and all programs?"):
+            self.log("Stopping all processes ...")
             pm.cleanup()
             self.root.destroy()
 
@@ -336,7 +368,7 @@ def main() -> int:
         validate_workspace()
 
         prep = tk.Tk()
-        prep.title("Hardware Starter - Vorbereitung")
+        prep.title("Hardware Launcher - Preparation")
         prep.geometry("760x360")
         log_widget = ScrolledText(prep, height=18, state="disabled")
         log_widget.pack(fill="both", expand=True, padx=12, pady=12)
@@ -349,24 +381,24 @@ def main() -> int:
             prep.update()
 
         prep_log(f"Workspace : {WORKSPACE}")
-        prep_log(f"ROS-Distro: {ROS_DISTRO}  |  Paket: {PACKAGE_NAME}")
-        prep_log("Baue Workspace ...")
+        prep_log(f"ROS distro: {ROS_DISTRO}  |  Package: {PACKAGE_NAME}")
+        prep_log("Building workspace ...")
         build_workspace(pm, prep_log)
-        prep_log("Lese Executables ...")
+        prep_log("Reading executables ...")
         executables = get_executables(prep_log)
-        prep_log("Bereit - oeffne Hardware-Fenster ...")
+        prep_log("Ready - opening hardware window ...")
         time.sleep(0.5)
         prep.destroy()
 
-        root = tk.Tk(className="Robotik Hardware Launcher")
+        root = tk.Tk(className="Robotics Hardware Launcher")
         HardwareStarterGUI(root, executables)
         root.mainloop()
     except Exception as exc:
         pm.cleanup()
         try:
-            messagebox.showerror("Fehler", str(exc))
+            messagebox.showerror("Error", str(exc))
         except Exception:
-            print(f"Fehler: {exc}", file=sys.stderr)
+            print(f"Error: {exc}", file=sys.stderr)
         return 1
     finally:
         pm.cleanup()

@@ -182,8 +182,11 @@ class PickPlace(Node):
             + ', '.join(f'{j}={v:.3f}' for j, v in zip(JOINT_NAMES, joint_positions))
         )
         self.moveit2.move_to_configuration(joint_positions)
-        self.moveit2.wait_until_executed()
-        self.get_logger().info(f'[{name}] ✓ complete')
+        ok = self.moveit2.wait_until_executed()
+        if not ok:
+            self.get_logger().error(f'[{name}] motion failed')
+        else:
+            self.get_logger().info(f'[{name}] complete')
 
     def move_to_base_position(self, x: float, y: float, z: float, roll: float = None, pitch: float = None, yaw: float = None, name: str = ''):
         '''Position and Rotation absolute in the BASE_LINK-Frame.'''
@@ -195,8 +198,11 @@ class PickPlace(Node):
 
         self.get_logger().info(f'[{name}] Absolute position = ({x:.3f}, {y:.3f}, {z:.3f})')
         self.moveit2.move_to_pose(position=[x, y, z], quat_xyzw=target_quat, cartesian=False)
-        self.moveit2.wait_until_executed()
-        self.get_logger().info(f'[{name}] ✓ complete')
+        ok = self.moveit2.wait_until_executed()
+        if not ok:
+            self.get_logger().error(f'[{name}] motion failed')
+        else:
+            self.get_logger().info(f'[{name}] complete')
 
     def move_to_relative_position(self, dx: float = 0.0, dy: float = 0.0, dz: float = 0.0, roll: float = 0.0, pitch: float = 0.0, yaw: float = 0.0, name: str = ''):
         '''Position and Rotation relative to the current EE pose.'''
@@ -213,8 +219,11 @@ class PickPlace(Node):
             f'Current-Pos = ({current_pos[0]:.3f}, {current_pos[1]:.3f}, {current_pos[2]:.3f}), Current-Rot = ({math.degrees(Rotation.from_quat(current_quat).as_euler("xyz")[0]):.1f}°,{math.degrees(Rotation.from_quat(current_quat).as_euler("xyz")[1]):.1f}°,{math.degrees(Rotation.from_quat(current_quat).as_euler("xyz")[2]):.1f}°)'
         )
         self.moveit2.move_to_pose(position=target, quat_xyzw=target_quat, cartesian=False)
-        self.moveit2.wait_until_executed()
-        self.get_logger().info(f'[{name}] ✓ complete')
+        ok = self.moveit2.wait_until_executed()
+        if not ok:
+            self.get_logger().error(f'[{name}] motion failed')
+        else:
+            self.get_logger().info(f'[{name}] complete')
 
     # -------------------------------------------------------------------------
     # I/O Commands
@@ -250,18 +259,17 @@ class PickPlace(Node):
     def run_job(self) -> int:
         self.get_logger().info('=== Pick & Place launched ===')
 
-        #if not self._wait_for_joint_states():
-        #    return 1
-        #if not self._wait_for_tf():
-        #    return 1
+        if not self._wait_for_joint_states():
+            return 1
+        if not self._wait_for_tf():
+            return 1
 
         self.move_to_joint_position(HOME_POSITION, 'home')
         self.move_to_joint_position(START_JOINT_POSITION, 'start')
         self.move_to_joint_position(PICK_JOINT_POSITION, 'pick')
         self.move_to_relative_position(dz=-0.10, name='pick-down')
 
-        if not self.set_digital_output(3, True):
-            return 1
+        time.sleep(1) # vaccum on
 
         self.move_to_relative_position(dz=0.10, name='pick-up')
         self.move_to_joint_position(START_JOINT_POSITION, 'start')
@@ -309,8 +317,7 @@ class PickPlace(Node):
         self.move_to_joint_position(START_JOINT_POSITION, 'start')
         self.move_to_relative_position(dz=-0.10, name='place-down')
 
-        if not self.set_digital_output(3, False):
-            return 1
+        time.sleep(1) # vaccum off
 
         self.move_to_relative_position(dz=0.10, name='place-up')
         self.move_to_joint_position(HOME_POSITION, 'home')

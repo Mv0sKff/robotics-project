@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Gemeinsame Helfer fuer die Robotik-Starter."""
+"""Shared, simple helpers for the robotics starters."""
 
 from __future__ import annotations
 
 import os
 import shlex
+import shutil
 import signal
 import subprocess
-import time
+import tempfile
 import textwrap
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -26,68 +28,174 @@ HARDWARE_STABLE_SECONDS = 2.0
 MOVE_GROUP_READY_TIMEOUT = 45
 
 WORKSPACE = Path(__file__).resolve().parent
-LOG_DIR = WORKSPACE / "log" / "starter"
 
 StatusFn = Callable[[str], None]
 
 
 def ros_cmd(command: str) -> str:
-    """Erzeugt einen Bash-Befehl mit ROS- und Workspace-Sourcing."""
     setup_ws = WORKSPACE / "install" / "setup.bash"
-    source_ws = f"[ -f {shlex.quote(str(setup_ws))} ] && source {shlex.quote(str(setup_ws))}"
-    return (
-        f"set +u && "
-        f"source {shlex.quote(f'/opt/ros/{ROS_DISTRO}/setup.bash')} && "
-        f"{source_ws} && "
-        f"set -u && exec {command}"
+    return " && ".join(
+        [
+            f"cd {shlex.quote(str(WORKSPACE))}",
+            "set +u",
+            f"source {shlex.quote(f'/opt/ros/{ROS_DISTRO}/setup.bash')}",
+            f"if [ -f {shlex.quote(str(setup_ws))} ]; then source {shlex.quote(str(setup_ws))}; fi",
+            "set -u",
+            command,
+        ]
     )
 
 
-class ProcessManager:
-    """Verwaltet Hintergrundprozesse und Log-Dateien."""
+def _terminal_command(title: str, script: str) -> list[str]:
+    terminal = (
+        shutil.which("gnome-terminal")
+        or shutil.which("xterm")
+        or shutil.which("konsole")
+        or shutil.which("xfce4-terminal")
+        or shutil.which("x-terminal-emulator")
+    )
+    if not terminal:
+        raise RuntimeError(
+            "No terminal emulator found. Install gnome-terminal or xterm, for example."
+        )
 
+    name = Path(terminal).name
+    if name == "gnome-terminal":
+        return [terminal, "--wait", "--title", title, "--", "bash", "-lc", script]
+    if name == "xterm":
+        return [terminal, "-T", title, "-e", "bash", "-lc", script]
+    if name == "konsole":
+        return [terminal, "--new-tab", "-p", f"tabtitle={title}", "-e", "bash", "-lc", script]
+    if name == "xfce4-terminal":
+        return [terminal, "--disable-server", "--title", title, "--command", f"bash -lc {shlex.quote(script)}"]
+    return [terminal, "-T", title, "-e", "bash", "-lc", script]
+
+
+def _terminal_script(
+    command: str,
+    title: str,
+    exit_file: Path | None = None,
+    pid_file: Path | None = None,
+    keep_open: bool = True,
+) -> str:
+    exit_write = ""
+    if exit_file is not None:
+        exit_write = f"printf '%s\\n' \"$rc\" > {shlex.quote(str(exit_file))}"
+
+    pid_write = ""
+    if pid_file is not None:
+        pid_write = f"printf '%s\\n' \"$$\" > {shlex.quote(str(pid_file))}"
+
+    wait_line = ""
+    if keep_open:
+        wait_line = "read -r -p 'Press Enter to close...'"
+    else:
+        wait_line = "if [ \"$rc\" -ne 0 ]; then read -r -p 'Error. Press Enter to close...'; fi"
+
+    return textwrap.dedent(
+        f"""
+        trap 'exit 130' INT TERM
+        {pid_write}
+        {ros_cmd(':')}
+        clear
+        echo '== {title} =='
+        echo {shlex.quote(command)}
+        echo
+        {command}
+        rc=$?
+        echo
+        echo '== {title} finished with code' "$rc" '=='
+        {exit_write}
+        {wait_line}
+        exit "$rc"
+        """
+    ).strip()
+
+
+class ProcessManager:
     def __init__(self):
         self._procs: list[subprocess.Popen] = []
-        self._logs: list = []
+        self._terminal_shells: dict[subprocess.Popen, Path] = {}
 
-    def _open_log(self, name: str):
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
-        path = LOG_DIR / f"{time.strftime('%Y%m%d_%H%M%S')}_{name}.log"
-        handle = open(path, "w", encoding="utf-8")
-        self._logs.append(handle)
-        return handle, path
-
-    def run_blocking(self, command: str, log_name: str, status: StatusFn | None = None) -> int:
-        log, path = self._open_log(log_name)
+    def start_terminal(
+        self,
+        command: str,
+        title: str,
+        status: StatusFn | None = None,
+    ) -> subprocess.Popen:
         if status:
-            status(f"Starte: {command}\nLog: {path}")
+            status(f"Terminal: {title}\n{command}")
+        pid_tmp = tempfile.NamedTemporaryFile(prefix="robotik_shell_", delete=False)
+        pid_path = Path(pid_tmp.name)
+        pid_tmp.close()
+        script = _terminal_script(command, title, pid_file=pid_path, keep_open=True)
         proc = subprocess.Popen(
-            ["bash", "-lc", command],
-            stdout=log,
-            stderr=subprocess.STDOUT,
+            _terminal_command(title, script),
             cwd=WORKSPACE,
             preexec_fn=os.setsid,
             text=True,
         )
         self._procs.append(proc)
-        rc = proc.wait()
+        self._terminal_shells[proc] = pid_path
+        return proc
+
+    def run_terminal(
+        self,
+        command: str,
+        title: str,
+        status: StatusFn | None = None,
+    ) -> int:
+        if status:
+            status(f"Starting: {title}\n{command}")
+        tmp = tempfile.NamedTemporaryFile(prefix="robotik_exit_", delete=False)
+        tmp_path = Path(tmp.name)
+        tmp.close()
+        pid_tmp = tempfile.NamedTemporaryFile(prefix="robotik_shell_", delete=False)
+        pid_path = Path(pid_tmp.name)
+        pid_tmp.close()
+        script = _terminal_script(
+            command,
+            title,
+            exit_file=tmp_path,
+            pid_file=pid_path,
+            keep_open=False,
+        )
+        proc = subprocess.Popen(
+            _terminal_command(title, script),
+            cwd=WORKSPACE,
+            preexec_fn=os.setsid,
+            text=True,
+        )
+        self._procs.append(proc)
+        self._terminal_shells[proc] = pid_path
+        proc.wait()
         if proc in self._procs:
             self._procs.remove(proc)
+        self._remove_shell_pid(proc)
+
+        rc = proc.returncode
+        try:
+            content = tmp_path.read_text(encoding="utf-8").strip()
+            if content:
+                rc = int(content)
+        finally:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
         if status:
-            status(f"Befehl beendet (Code {rc}): {command}")
+            status(f"Finished with code {rc}: {title}")
         return rc
 
     def run_ros_capture(
         self,
         command: str,
-        log_name: str,
         timeout: float,
         status: StatusFn | None = None,
     ) -> tuple[int, str]:
-        log, path = self._open_log(log_name)
-        display_command = command if len(command) <= 160 else f"{command[:157]}..."
         if status:
-            status(f"Pruefe: {display_command}\nLog: {path}")
+            status(f"Checking: {command}")
         proc = subprocess.Popen(
             ["bash", "-lc", ros_cmd(command)],
             stdout=subprocess.PIPE,
@@ -109,38 +217,21 @@ class ProcessManager:
             if proc in self._procs:
                 self._procs.remove(proc)
 
-        log.write(output or "")
-        log.flush()
+        output = output or ""
         if status and output:
             for line in output.strip().splitlines()[-8:]:
                 status(line)
-        if status:
-            status(f"Pruefung beendet (Code {rc}): {display_command}")
-        return rc, output or ""
-
-    def start_background(
-        self,
-        command: str,
-        log_name: str,
-        status: StatusFn | None = None,
-    ) -> subprocess.Popen:
-        log, path = self._open_log(log_name)
-        if status:
-            status(f"Hintergrund: {command}\nLog: {path}")
-        proc = subprocess.Popen(
-            ["bash", "-lc", ros_cmd(command)],
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            cwd=WORKSPACE,
-            preexec_fn=os.setsid,
-            text=True,
-        )
-        self._procs.append(proc)
-        return proc
+        return rc, output
 
     def terminate(self, proc: subprocess.Popen | None) -> None:
-        if proc is None or proc.poll() is not None:
+        if proc is None:
             return
+
+        self._terminate_terminal_shell(proc)
+        if proc.poll() is not None:
+            self._remove_shell_pid(proc)
+            return
+
         for sig, delay in [(signal.SIGINT, 1.5), (signal.SIGTERM, 1.0), (signal.SIGKILL, 0)]:
             if proc.poll() is not None:
                 break
@@ -148,49 +239,77 @@ class ProcessManager:
                 os.killpg(os.getpgid(proc.pid), sig)
                 if delay:
                     time.sleep(delay)
-            except Exception:
+            except OSError:
                 break
+        self._remove_shell_pid(proc)
 
     def cleanup(self) -> None:
         for proc in reversed(self._procs):
             self.terminate(proc)
         self._procs.clear()
-        for handle in self._logs:
-            try:
-                handle.flush()
-                handle.close()
-            except Exception:
-                pass
 
     def remove_dead(self) -> None:
+        dead = [proc for proc in self._procs if proc.poll() is not None]
+        for proc in dead:
+            self._remove_shell_pid(proc)
         self._procs = [proc for proc in self._procs if proc.poll() is None]
+
+    def _terminate_terminal_shell(self, proc: subprocess.Popen) -> None:
+        pid_path = self._terminal_shells.get(proc)
+        if pid_path is None or not pid_path.exists():
+            return
+        try:
+            shell_pid = int(pid_path.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            return
+
+        for sig, delay in [(signal.SIGINT, 0.7), (signal.SIGTERM, 0.7), (signal.SIGKILL, 0)]:
+            try:
+                os.killpg(os.getpgid(shell_pid), sig)
+            except OSError:
+                try:
+                    os.kill(shell_pid, sig)
+                except OSError:
+                    break
+            if delay:
+                time.sleep(delay)
+
+    def _remove_shell_pid(self, proc: subprocess.Popen) -> None:
+        pid_path = self._terminal_shells.pop(proc, None)
+        if pid_path is None:
+            return
+        try:
+            pid_path.unlink()
+        except OSError:
+            pass
+
+
+def is_running(proc: subprocess.Popen | None) -> bool:
+    return proc is not None and proc.poll() is None
 
 
 def validate_workspace() -> None:
     if not (WORKSPACE / "src").is_dir():
         raise RuntimeError(
-            f"Kein src/-Ordner in {WORKSPACE}.\n"
-            "Lege den Starter bitte in den Root-Ordner deines ROS-2-Workspaces."
+            f"No src/ folder found in {WORKSPACE}.\n"
+            "Place the starter in the root folder of your ROS 2 workspace."
         )
 
 
 def build_workspace(pm: ProcessManager, status: StatusFn | None = None) -> None:
-    cmd = f"source /opt/ros/{ROS_DISTRO}/setup.bash && colcon build --symlink-install"
-    if pm.run_blocking(cmd, "build", status) != 0:
-        raise RuntimeError(f"Build fehlgeschlagen. Logs unter: {LOG_DIR}")
+    rc = pm.run_terminal("colcon build --symlink-install", "Build Workspace", status)
+    if rc != 0:
+        raise RuntimeError("Build failed.")
 
 
 def build_project_package(pm: ProcessManager, status: StatusFn | None = None) -> bool:
-    cmd = (
-        f"source /opt/ros/{ROS_DISTRO}/setup.bash && "
-        f"colcon build --packages-select {PACKAGE_NAME} --symlink-install"
-    )
-    return pm.run_blocking(cmd, "build_package", status) == 0
+    command = f"colcon build --packages-select {PACKAGE_NAME} --symlink-install"
+    return pm.run_terminal(command, f"Build {PACKAGE_NAME}", status) == 0
 
 
 def get_executables(status: StatusFn | None = None) -> list[str]:
     if status:
-        status(f"Lese Executables aus Paket {PACKAGE_NAME} ...")
+        status(f"Reading executables from package {PACKAGE_NAME} ...")
     result = subprocess.run(
         ["bash", "-lc", ros_cmd(f"ros2 pkg executables {PACKAGE_NAME}")],
         cwd=WORKSPACE,
@@ -198,7 +317,7 @@ def get_executables(status: StatusFn | None = None) -> list[str]:
         text=True,
     )
     if result.returncode != 0:
-        raise RuntimeError(f"Executables nicht lesbar:\n{result.stderr}")
+        raise RuntimeError(f"Could not read executables:\n{result.stderr}")
     exes = sorted(
         {
             parts[1]
@@ -207,46 +326,30 @@ def get_executables(status: StatusFn | None = None) -> list[str]:
         }
     )
     if not exes:
-        raise RuntimeError(f"Keine Executables in {PACKAGE_NAME} gefunden.")
+        raise RuntimeError(f"No executables found in {PACKAGE_NAME}.")
     return exes
 
 
 def launch_program(
     pm: ProcessManager,
     exe: str,
-    log_prefix: str,
+    title_prefix: str,
     status: StatusFn | None = None,
 ) -> subprocess.Popen:
     command = f"ros2 run {PACKAGE_NAME} {exe} --ros-args -r __ns:={NAMESPACE}"
-    log, path = pm._open_log(f"{log_prefix}_{exe}")
-    if status:
-        status(f"Starte Programm: {exe}\nLog: {path}")
-    proc = subprocess.Popen(
-        ["bash", "-lc", ros_cmd(command)],
-        stdout=log,
-        stderr=subprocess.STDOUT,
-        cwd=WORKSPACE,
-        preexec_fn=os.setsid,
-        text=True,
-    )
-    pm._procs.append(proc)
-    return proc
-
-
-def is_running(proc: subprocess.Popen | None) -> bool:
-    return proc is not None and proc.poll() is None
+    return pm.start_terminal(command, f"{title_prefix}: {exe}", status)
 
 
 def start_mock_system(pm: ProcessManager, status: StatusFn | None = None) -> tuple[subprocess.Popen, subprocess.Popen]:
-    mock_proc = pm.start_background(
+    mock_proc = pm.start_terminal(
         f"ros2 launch lbr_bringup mock.launch.py model:={ROBOT_MODEL}",
-        "mock",
+        "Mock",
         status,
     )
     time.sleep(WAIT_AFTER_MOCK)
-    moveit_proc = pm.start_background(
+    moveit_proc = pm.start_terminal(
         f"ros2 launch lbr_bringup move_group.launch.py model:={ROBOT_MODEL} mode:=mock rviz:=true",
-        "moveit_rviz",
+        "MoveIt Mock + RViz",
         status,
     )
     time.sleep(WAIT_AFTER_MOVEIT)
@@ -348,7 +451,6 @@ def wait_for_lbr_state(pm: ProcessManager, status: StatusFn | None = None) -> bo
     ).strip()
     rc, _ = pm.run_ros_capture(
         f"python3 -u -c {shlex.quote(script)}",
-        "wait_lbr_state",
         HARDWARE_READY_TIMEOUT + 10,
         status,
     )
@@ -379,12 +481,12 @@ def wait_for_controller_active(
                     states[parts[0]] = parts
             if all(name in states and "active" in states[name] for name in required):
                 if status:
-                    status(f"Controller aktiv: {', '.join(sorted(required))}")
+                    status(f"Controllers active: {', '.join(sorted(required))}")
                 return True
         time.sleep(1)
 
     if status:
-        status("Controller wurden nicht rechtzeitig aktiv.")
+        status("Controllers did not become active in time.")
         if last_output:
             status(last_output)
     return False
@@ -401,9 +503,9 @@ def wait_for_node(expected_node: str, timeout: float, status: StatusFn | None = 
         )
         if result.returncode == 0 and expected_node in result.stdout.splitlines():
             if status:
-                status(f"Node bereit: {expected_node}")
+                status(f"Node ready: {expected_node}")
             return True
         time.sleep(1)
     if status:
-        status(f"Node nicht rechtzeitig gefunden: {expected_node}")
+        status(f"Node not found in time: {expected_node}")
     return False

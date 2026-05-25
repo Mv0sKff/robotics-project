@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Starter nur fuer Simulation/Mock."""
+"""Launcher for simulation/mock mode."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from tkinter import messagebox
 from tkinter.scrolledtext import ScrolledText
 
 from starter_common import (
-    LOG_DIR,
     NAMESPACE,
     PACKAGE_NAME,
     ROBOT_MODEL,
@@ -44,25 +43,25 @@ class SimulationStarterGUI:
         self._mock_proc = mock_proc
         self._moveit_proc = moveit_proc
 
-        root.title("Robotik Simulation Starter")
+        root.title("Robotics Simulation Launcher")
         root.geometry("850x560")
         root.protocol("WM_DELETE_WINDOW", self.on_exit)
 
+        self._setup_konami()
         self._build_ui()
         self._poll_dead_procs()
-        self.log(f"Logs: {LOG_DIR}")
-        self.log("Simulation laeuft: Mock, MoveIt und RViz sind gestartet.")
+        self.log("Simulation is running. ROS commands open in visible terminal windows.")
 
     def _build_ui(self):
         tk.Label(
             self.root,
-            text="Robotik-Projekt: Simulation",
+            text="Robotics Project: Simulation",
             font=("Arial", 16, "bold"),
         ).pack(padx=12, pady=(12, 4), anchor="w")
 
         tk.Label(
             self.root,
-            text=f"Workspace: {WORKSPACE}   |   Paket: {PACKAGE_NAME}   |   Modell: {ROBOT_MODEL}   |   NS: {NAMESPACE}",
+            text=f"Workspace: {WORKSPACE}   |   Package: {PACKAGE_NAME}   |   Model: {ROBOT_MODEL}   |   NS: {NAMESPACE}",
             justify="left",
         ).pack(padx=12, pady=(0, 8), anchor="w")
 
@@ -71,7 +70,7 @@ class SimulationStarterGUI:
 
         left = tk.Frame(main)
         left.pack(side="left", fill="both")
-        tk.Label(left, text="Roboterprogramme").pack(anchor="w")
+        tk.Label(left, text="Robot programs").pack(anchor="w")
         self.listbox = tk.Listbox(left, width=42, height=16)
         self.listbox.pack(fill="y")
         for exe in self.executables:
@@ -81,7 +80,7 @@ class SimulationStarterGUI:
 
         right = tk.Frame(main)
         right.pack(side="right", fill="both", expand=True, padx=(14, 0))
-        tk.Label(right, text="Status / Hinweise").pack(anchor="w")
+        tk.Label(right, text="Status / Notes").pack(anchor="w")
         self.status_text = ScrolledText(right, height=16, state="disabled")
         self.status_text.pack(fill="both", expand=True)
 
@@ -90,7 +89,7 @@ class SimulationStarterGUI:
 
         tk.Button(
             bottom,
-            text="Alles beenden",
+            text="Stop all",
             command=self.on_exit,
             bg="#b00020",
             fg="white",
@@ -100,7 +99,7 @@ class SimulationStarterGUI:
 
         self.start_btn = tk.Button(
             bottom,
-            text="Auf Simulation starten",
+            text="Start on simulation",
             command=self.start_selected,
             bg="#006400",
             fg="white",
@@ -111,14 +110,14 @@ class SimulationStarterGUI:
 
         self.restart_btn = tk.Button(
             bottom,
-            text="Simulation neu starten",
+            text="Restart simulation",
             command=self.restart_simulation,
             width=24,
             height=2,
         )
         self.restart_btn.pack(side="right", padx=(8, 0))
 
-        self.status_label = tk.Label(bottom, text="Bereit")
+        self.status_label = tk.Label(bottom, text="Ready")
         self.status_label.pack(side="right", padx=(12, 0))
 
     def log(self, text: str):
@@ -135,13 +134,46 @@ class SimulationStarterGUI:
         self.start_btn.configure(state=state)
         self.restart_btn.configure(state=state)
 
+    def _setup_konami(self):
+        self._konami = ["Up", "Up", "Down", "Down", "Left", "Right", "Left", "Right", "a", "b"]
+        self._buf: list[str] = []
+        self.root.bind_all("<KeyPress>", self._on_key)
+
+    def _on_key(self, event):
+        key = event.keysym.lower() if event.keysym.lower() in ("a", "b") else event.keysym
+        self._buf = (self._buf + [key])[-len(self._konami):]
+        if self._buf == self._konami:
+            self._buf.clear()
+            self._praise_the_sun()
+
+    def _praise_the_sun(self):
+        import random
+
+        msgs = ["Praise the Sun", "☀ Praise the Sun ☀", "\\[T]/"]
+        labels = [
+            tk.Label(
+                self.root,
+                text=random.choice(msgs),
+                font=("Arial", random.randint(12, 28), "bold"),
+                bg="yellow",
+                fg="black",
+            )
+            for _ in range(77)
+        ]
+        for lbl in labels:
+            lbl.place(
+                x=random.randint(0, max(1, self.root.winfo_width() - 180)),
+                y=random.randint(0, max(1, self.root.winfo_height() - 40)),
+            )
+        self.root.after(10_000, lambda: [lbl.destroy() for lbl in labels])
+
     def _get_selected_exe(self) -> str | None:
         if is_running(self._robot_proc):
-            messagebox.showinfo("Laeuft bereits", "Warte bis das aktuelle Programm beendet ist.")
+            messagebox.showinfo("Already running", "Wait until the current program has finished.")
             return None
         sel = self.listbox.curselection()
         if not sel:
-            messagebox.showwarning("Keine Auswahl", "Bitte waehle zuerst ein Programm aus.")
+            messagebox.showwarning("No selection", "Please select a program first.")
             return None
         return self.listbox.get(sel[0])
 
@@ -154,53 +186,53 @@ class SimulationStarterGUI:
 
         self.status_label.configure(text=f"Simulation: {exe}")
         self._set_buttons("disabled")
-        self.log(f"[Simulation] Starte '{exe}'.")
-        self._robot_proc = launch_program(pm, exe, "simulation_program", self.log)
+        self.log(f"[Simulation] Starting '{exe}' in a terminal window.")
+        self._robot_proc = launch_program(pm, exe, "Simulation Program", self.log)
         self._robot_name = exe
         self.root.after(500, self._monitor)
 
     def restart_simulation(self, confirm: bool = True):
-        if confirm and not messagebox.askyesno("Simulation neu starten", "Mock, MoveIt und RViz neu starten?"):
+        if confirm and not messagebox.askyesno("Restart simulation", "Restart Mock, MoveIt, and RViz?"):
             return
         self._set_buttons("disabled")
-        self.log("[Simulation] Stoppe laufende Simulation ...")
+        self.log("[Simulation] Stopping running simulation ...")
         pm.terminate(self._moveit_proc)
         pm.terminate(self._mock_proc)
-        self.log("[Simulation] Starte Mock, MoveIt und RViz ...")
+        self.log("[Simulation] Starting Mock, MoveIt, and RViz ...")
         self._mock_proc, self._moveit_proc = start_mock_system(pm, self.log)
-        self.status_label.configure(text="Bereit")
+        self.status_label.configure(text="Ready")
         self._set_buttons("normal")
 
     def _monitor(self):
         if self._robot_proc is None:
             self._set_buttons("normal")
-            self.status_label.configure(text="Bereit")
+            self.status_label.configure(text="Ready")
             return
         rc = self._robot_proc.poll()
         if rc is None:
             self.root.after(1000, self._monitor)
             return
-        self.log(f"Programm beendet: {self._robot_name} (Exit {rc})")
+        self.log(f"Program finished: {self._robot_name} (exit {rc})")
         if self._robot_proc in pm._procs:
             pm._procs.remove(self._robot_proc)
         self._robot_proc = None
         self._robot_name = None
-        self.status_label.configure(text="Bereit")
+        self.status_label.configure(text="Ready")
         self._set_buttons("normal")
 
     def _poll_dead_procs(self):
         if self._mock_proc is not None and self._mock_proc.poll() is not None:
-            self.log(f"[Simulation] Mock beendet (Exit {self._mock_proc.returncode}).")
+            self.log(f"[Simulation] Mock exited (exit {self._mock_proc.returncode}).")
             self._mock_proc = None
         if self._moveit_proc is not None and self._moveit_proc.poll() is not None:
-            self.log(f"[Simulation] MoveIt/RViz beendet (Exit {self._moveit_proc.returncode}).")
+            self.log(f"[Simulation] MoveIt/RViz exited (exit {self._moveit_proc.returncode}).")
             self._moveit_proc = None
         pm.remove_dead()
         self.root.after(2000, self._poll_dead_procs)
 
     def on_exit(self):
-        if messagebox.askyesno("Alles beenden", "Simulation und alle Programme beenden?"):
-            self.log("Beende alle Prozesse ...")
+        if messagebox.askyesno("Stop all", "Stop simulation and all programs?"):
+            self.log("Stopping all processes ...")
             pm.cleanup()
             self.root.destroy()
 
@@ -213,7 +245,7 @@ def main() -> int:
         validate_workspace()
 
         prep = tk.Tk()
-        prep.title("Simulation Starter - Vorbereitung")
+        prep.title("Simulation Launcher - Preparation")
         prep.geometry("760x360")
         log_widget = ScrolledText(prep, height=18, state="disabled")
         log_widget.pack(fill="both", expand=True, padx=12, pady=12)
@@ -226,26 +258,26 @@ def main() -> int:
             prep.update()
 
         prep_log(f"Workspace : {WORKSPACE}")
-        prep_log(f"ROS-Distro: {ROS_DISTRO}  |  Paket: {PACKAGE_NAME}")
-        prep_log("Baue Workspace ...")
+        prep_log(f"ROS distro: {ROS_DISTRO}  |  Package: {PACKAGE_NAME}")
+        prep_log("Building workspace ...")
         build_workspace(pm, prep_log)
-        prep_log("Lese Executables ...")
+        prep_log("Reading executables ...")
         executables = get_executables(prep_log)
-        prep_log("Starte Mock, MoveIt und RViz ...")
+        prep_log("Starting Mock, MoveIt, and RViz ...")
         mock_proc, moveit_proc = start_mock_system(pm, prep_log)
-        prep_log("Bereit - oeffne Hauptfenster ...")
+        prep_log("Ready - opening main window ...")
         time.sleep(0.5)
         prep.destroy()
 
-        root = tk.Tk(className="Robotik Simulation Launcher")
+        root = tk.Tk(className="Robotics Simulation Launcher")
         SimulationStarterGUI(root, executables, mock_proc, moveit_proc)
         root.mainloop()
     except Exception as exc:
         pm.cleanup()
         try:
-            messagebox.showerror("Fehler", str(exc))
+            messagebox.showerror("Error", str(exc))
         except Exception:
-            print(f"Fehler: {exc}", file=sys.stderr)
+            print(f"Error: {exc}", file=sys.stderr)
         return 1
     finally:
         pm.cleanup()
