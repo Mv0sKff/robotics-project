@@ -264,14 +264,14 @@ class PickPlace(Node):
         if not self._wait_for_tf():
             return 1
 
-        self.move_to_joint_position(HOME_POSITION, 'home')
-        self.move_to_joint_position(START_JOINT_POSITION, 'start')
-        self.move_to_joint_position(PICK_JOINT_POSITION, 'pick')
-        self.move_to_relative_position(dz=-0.10, name='pick-down')
+        #self.move_to_joint_position(HOME_POSITION, 'home')
+        #self.move_to_joint_position(START_JOINT_POSITION, 'start')
+        #self.move_to_joint_position(PICK_JOINT_POSITION, 'pick')
+        #self.move_to_relative_position(dz=-0.10, name='pick-down')
 
-        time.sleep(1) # vaccum on
+        #time.sleep(1) # vaccum on
 
-        self.move_to_relative_position(dz=0.10, name='pick-up')
+        #self.move_to_relative_position(dz=0.10, name='pick-up')
         self.move_to_joint_position(START_JOINT_POSITION, 'start')
 
         self.move_to_relative_position(
@@ -314,13 +314,13 @@ class PickPlace(Node):
         self.record_data_point('data_recording_back')
 
         self.move_to_joint_position(START_JOINT_POSITION, 'start')
-        self.move_to_joint_position(START_JOINT_POSITION, 'start')
-        self.move_to_relative_position(dz=-0.10, name='place-down')
+        #self.move_to_joint_position(START_JOINT_POSITION, 'start')
+        #self.move_to_relative_position(dz=-0.10, name='place-down')
 
-        time.sleep(1) # vaccum off
+        #time.sleep(1) # vaccum off
 
-        self.move_to_relative_position(dz=0.10, name='place-up')
-        self.move_to_joint_position(HOME_POSITION, 'home')
+        #self.move_to_relative_position(dz=0.10, name='place-up')
+        #self.move_to_joint_position(HOME_POSITION, 'home')
 
         self.get_logger().info('=== Pick & Place successfully completed ===')
         return 0
