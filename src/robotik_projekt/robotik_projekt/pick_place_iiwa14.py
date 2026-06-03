@@ -273,6 +273,7 @@ class PickPlace(Node):
 
         #self.move_to_relative_position(dz=0.10, name='pick-up')
         self.move_to_joint_position(START_JOINT_POSITION, 'start')
+        self.record_data_point('data_recording_center')
 
         self.move_to_relative_position(
             dx=0.0,
@@ -348,6 +349,14 @@ def main() -> int:
     except Exception as exc:
         node.get_logger().error(f'Error: {exc}')
     finally:
+        # Cancel any in-flight trajectory execution so the joint_trajectory_controller
+        # returns to idle and the program can be rerun without restarting the server.
+        # The executor must still be spinning while cancel_execution() sends its request.
+        try:
+            node.moveit2.cancel_execution()
+            time.sleep(0.5)  # give the cancel request time to be processed
+        except Exception:
+            pass
         executor.shutdown()
         thread.join(timeout=2.0)
         node.destroy_node()
