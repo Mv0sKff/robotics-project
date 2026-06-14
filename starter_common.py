@@ -71,6 +71,21 @@ def _terminal_command(title: str, script: str) -> list[str]:
     return [terminal, "-T", title, "-e", "bash", "-lc", script]
 
 
+def _terminal_env() -> dict[str, str]:
+    env = os.environ.copy()
+    for key in list(env):
+        if key == "SNAP" or key.startswith("SNAP_"):
+            env.pop(key, None)
+    for key in (
+        "GTK_PATH",
+        "GIO_MODULE_DIR",
+        "GDK_PIXBUF_MODULE_FILE",
+        "GDK_PIXBUF_MODULEDIR",
+    ):
+        env.pop(key, None)
+    return env
+
+
 def _terminal_script(
     command: str,
     title: str,
@@ -132,6 +147,7 @@ class ProcessManager:
         proc = subprocess.Popen(
             _terminal_command(title, script),
             cwd=WORKSPACE,
+            env=_terminal_env(),
             preexec_fn=os.setsid,
             text=True,
         )
@@ -163,6 +179,7 @@ class ProcessManager:
         proc = subprocess.Popen(
             _terminal_command(title, script),
             cwd=WORKSPACE,
+            env=_terminal_env(),
             preexec_fn=os.setsid,
             text=True,
         )
