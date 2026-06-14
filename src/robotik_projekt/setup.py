@@ -23,10 +23,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'pick_place_node = robotik_projekt.pick_place_node:main',
-            'pick_place_node_demo = robotik_projekt.pick_place_node_demo:main',
-            'pick_place_servo = robotik_projekt.pick_place_servo:main',
-            'pick_place_iiwa14 = robotik_projekt.pick_place_iiwa14:main',
+            'pick_place_iiwa14 = robotik_projekt.pick_place_iiwa14:main'
         ],
     },
 )
