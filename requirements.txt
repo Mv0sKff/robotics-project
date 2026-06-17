@@ -1,0 +1,30 @@
+# Python dependencies for the robotics project (ROS 2 Jazzy, Ubuntu 24.04).
+#
+# ROS 2 packages (rclpy, tf2_ros, sensor_msgs, std_srvs, lbr_fri_idl, pymoveit2)
+# are installed via apt / rosdep from the ROS 2 apt repository and the
+# build/pymoveit2 workspace, so they are NOT listed here.
+#
+# Install with:
+#   python3 -m venv .venv
+#   source .venv/bin/activate
+#   pip install -r requirements.txt
+
+# --- Numerical / scientific stack ---
+numpy>=1.26,<3.0
+scipy>=1.11,<2.0
+pandas>=2.2,<3.0
+
+pyyaml
+jinja2
+typeguard
+
+# --- Machine learning (model training + inference) ---
+scikit-learn>=1.4,<2.0
+tensorflow>=2.16,<3.0
+joblib>=1.3,<2.0
+
+# --- Reading .keras model files in the lightweight (non-tf) inference path ---
+h5py>=3.10,<4.0
+
+# --- Test dependencies (match setup.py extras_require['test']) ---
+pytest>=8.0,<9.0
