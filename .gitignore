@@ -1,6 +1,7 @@
 log/
 install/
 build/
+.venv/
 
 lbr_fri_idl/
 fri/

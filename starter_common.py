@@ -28,6 +28,8 @@ HARDWARE_STABLE_SECONDS = 2.0
 MOVE_GROUP_READY_TIMEOUT = 45
 
 WORKSPACE = Path(__file__).resolve().parent
+VENV_ACTIVATE = WORKSPACE / ".venv" / "bin" / "activate"
+COLCON_PYTHON = "python" if VENV_ACTIVATE.exists() else "python3"
 
 StatusFn = Callable[[str], None]
 
@@ -39,6 +41,7 @@ def ros_cmd(command: str) -> str:
             f"cd {shlex.quote(str(WORKSPACE))}",
             "set +u",
             f"source {shlex.quote(f'/opt/ros/{ROS_DISTRO}/setup.bash')}",
+            f"if [ -f {shlex.quote(str(VENV_ACTIVATE))} ]; then source {shlex.quote(str(VENV_ACTIVATE))}; fi",
             f"if [ -f {shlex.quote(str(setup_ws))} ]; then source {shlex.quote(str(setup_ws))}; fi",
             "set -u",
             command,
@@ -314,13 +317,13 @@ def validate_workspace() -> None:
 
 
 def build_workspace(pm: ProcessManager, status: StatusFn | None = None) -> None:
-    rc = pm.run_terminal("colcon build --symlink-install", "Build Workspace", status)
+    rc = pm.run_terminal(f"{COLCON_PYTHON} -m colcon build --symlink-install", "Build Workspace", status)
     if rc != 0:
         raise RuntimeError("Build failed.")
 
 
 def build_project_package(pm: ProcessManager, status: StatusFn | None = None) -> bool:
-    command = f"colcon build --packages-select {PACKAGE_NAME} --symlink-install"
+    command = f"{COLCON_PYTHON} -m colcon build --packages-select {PACKAGE_NAME} --symlink-install"
     return pm.run_terminal(command, f"Build {PACKAGE_NAME}", status) == 0
 
 
