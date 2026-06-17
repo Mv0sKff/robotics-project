@@ -28,6 +28,8 @@ HARDWARE_STABLE_SECONDS = 2.0
 MOVE_GROUP_READY_TIMEOUT = 45
 
 WORKSPACE = Path(__file__).resolve().parent
+VENV_ACTIVATE = WORKSPACE / ".venv" / "bin" / "activate"
+COLCON_PYTHON = "python" if VENV_ACTIVATE.exists() else "python3"
 
 StatusFn = Callable[[str], None]
 
@@ -39,6 +41,7 @@ def ros_cmd(command: str) -> str:
             f"cd {shlex.quote(str(WORKSPACE))}",
             "set +u",
             f"source {shlex.quote(f'/opt/ros/{ROS_DISTRO}/setup.bash')}",
+            f"if [ -f {shlex.quote(str(VENV_ACTIVATE))} ]; then source {shlex.quote(str(VENV_ACTIVATE))}; fi",
             f"if [ -f {shlex.quote(str(setup_ws))} ]; then source {shlex.quote(str(setup_ws))}; fi",
             "set -u",
             command,
@@ -69,6 +72,21 @@ def _terminal_command(title: str, script: str) -> list[str]:
     if name == "xfce4-terminal":
         return [terminal, "--disable-server", "--title", title, "--command", f"bash -lc {shlex.quote(script)}"]
     return [terminal, "-T", title, "-e", "bash", "-lc", script]
+
+
+def _terminal_env() -> dict[str, str]:
+    env = os.environ.copy()
+    for key in list(env):
+        if key == "SNAP" or key.startswith("SNAP_"):
+            env.pop(key, None)
+    for key in (
+        "GTK_PATH",
+        "GIO_MODULE_DIR",
+        "GDK_PIXBUF_MODULE_FILE",
+        "GDK_PIXBUF_MODULEDIR",
+    ):
+        env.pop(key, None)
+    return env
 
 
 def _terminal_script(
@@ -132,6 +150,7 @@ class ProcessManager:
         proc = subprocess.Popen(
             _terminal_command(title, script),
             cwd=WORKSPACE,
+            env=_terminal_env(),
             preexec_fn=os.setsid,
             text=True,
         )
@@ -163,6 +182,7 @@ class ProcessManager:
         proc = subprocess.Popen(
             _terminal_command(title, script),
             cwd=WORKSPACE,
+            env=_terminal_env(),
             preexec_fn=os.setsid,
             text=True,
         )
@@ -297,13 +317,13 @@ def validate_workspace() -> None:
 
 
 def build_workspace(pm: ProcessManager, status: StatusFn | None = None) -> None:
-    rc = pm.run_terminal("colcon build --symlink-install", "Build Workspace", status)
+    rc = pm.run_terminal(f"{COLCON_PYTHON} -m colcon build --symlink-install", "Build Workspace", status)
     if rc != 0:
         raise RuntimeError("Build failed.")
 
 
 def build_project_package(pm: ProcessManager, status: StatusFn | None = None) -> bool:
-    command = f"colcon build --packages-select {PACKAGE_NAME} --symlink-install"
+    command = f"{COLCON_PYTHON} -m colcon build --packages-select {PACKAGE_NAME} --symlink-install"
     return pm.run_terminal(command, f"Build {PACKAGE_NAME}", status) == 0
 
 

@@ -32,6 +32,53 @@
         <child link="$(arg robot_name)_link_0" />
     </joint>
 
+    <xacro:if value="$(eval mode == 'mock' or mode == 'gazebo')">
+        <xacro:property name="table_radius" value="1.1" />
+        <xacro:property name="table_thickness" value="0.02" />
+        <xacro:property name="table_mass" value="30.0" />
+
+        <joint name="$(arg robot_name)_simulation_table_joint" type="fixed">
+            <parent link="world" />
+            <child link="$(arg robot_name)_simulation_table" />
+            <origin xyz="0 0 -0.04" rpy="0 0 0" />
+        </joint>
+
+        <link name="$(arg robot_name)_simulation_table">
+            <inertial>
+                <origin xyz="0 0 0" rpy="0 0 0" />
+                <mass value="${table_mass}" />
+                <inertia
+                    ixx="${table_mass * (3 * table_radius * table_radius + table_thickness * table_thickness) / 12}"
+                    ixy="0"
+                    ixz="0"
+                    iyy="${table_mass * (3 * table_radius * table_radius + table_thickness * table_thickness) / 12}"
+                    iyz="0"
+                    izz="${table_mass * table_radius * table_radius / 2}" />
+            </inertial>
+            <visual>
+                <origin xyz="0 0 0" rpy="0 0 0" />
+                <geometry>
+                    <cylinder radius="${table_radius}" length="${table_thickness}" />
+                </geometry>
+                <material name="simulation_table_yellow">
+                    <color rgba="0.50 0.50 0.0 1.0" />
+                </material>
+            </visual>
+            <collision>
+                <origin xyz="0 0 0" rpy="0 0 0" />
+                <geometry>
+                    <cylinder radius="${table_radius}" length="${table_thickness}" />
+                </geometry>
+            </collision>
+        </link>
+
+        <gazebo reference="$(arg robot_name)_simulation_table">
+            <mu1>0.8</mu1>
+            <mu2>0.8</mu2>
+            <material>Gazebo/Yellow</material>
+        </gazebo>
+    </xacro:if>
+
     <!-- macros for gazebo / mock / hardware -->
     <xacro:lbr_gazebo robot_name="$(arg robot_name)" />
     <xacro:lbr_system_interface
@@ -44,4 +91,206 @@
     <xacro:iiwa14
         robot_name="$(arg robot_name)"
         joint_limits_path="$(arg joint_limits_path)" />
+
+    <xacro:if value="$(eval mode == 'mock' or mode == 'gazebo')">
+        <joint name="$(arg robot_name)_vacuum_gripper_joint" type="fixed">
+            <parent link="$(arg robot_name)_link_ee" />
+            <child link="$(arg robot_name)_vacuum_gripper" />
+            <origin xyz="0 0 0" rpy="0 0 0" />
+        </joint>
+
+        <link name="$(arg robot_name)_vacuum_gripper">
+            <inertial>
+                <origin xyz="0 0 0.225" rpy="0 0 0" />
+                <mass value="1.6" />
+                <inertia ixx="0.035" ixy="0" ixz="0" iyy="0.035" iyz="0" izz="0.006" />
+            </inertial>
+
+            <collision>
+                <origin xyz="0 0 0.245" rpy="0 0 0" />
+                <geometry>
+                    <cylinder radius="0.035" length="0.360" />
+                </geometry>
+            </collision>
+            <collision>
+                <origin xyz="0 0 0.327" rpy="0 0 0" />
+                <geometry>
+                    <cylinder radius="0.023" length="0.038" />
+                </geometry>
+            </collision>
+        </link>
+
+        <joint name="$(arg robot_name)_vacuum_unit_visual_joint" type="fixed">
+            <parent link="$(arg robot_name)_vacuum_gripper" />
+            <child link="$(arg robot_name)_vacuum_unit_visual" />
+            <origin xyz="0 0 0" rpy="0 0 0" />
+        </joint>
+        <link name="$(arg robot_name)_vacuum_unit_visual">
+            <visual>
+                <origin xyz="0 0 0.0275" rpy="0 0 0" />
+                <geometry>
+                    <mesh filename="package://lbr_description/meshes/iiwa14/visual/rounded_triangle_block.stl" />
+                </geometry>
+                <material name="vacuum_unit">
+                    <color rgba="0.82 0.80 0.72 1.0" />
+                </material>
+            </visual>
+        </link>
+
+        <joint name="$(arg robot_name)_extension_tube_visual_joint" type="fixed">
+            <parent link="$(arg robot_name)_vacuum_gripper" />
+            <child link="$(arg robot_name)_extension_tube_visual" />
+            <origin xyz="0 0 0" rpy="0 0 0" />
+        </joint>
+        <link name="$(arg robot_name)_extension_tube_visual">
+            <visual>
+                <origin xyz="0 0 0.0575" rpy="0 0 0" />
+                <geometry>
+                    <cylinder radius="0.025" length="0.005" />
+                </geometry>
+                <material name="vacuum_unit_extension_connector">
+                    <color rgba="0.62 0.60 0.55 1.0" />
+                </material>
+            </visual>
+            <visual>
+                <origin xyz="0 0 0.160" rpy="0 0 0" />
+                <geometry>
+                    <cylinder radius="0.015" length="0.200" />
+                </geometry>
+                <material name="extension_tube">
+                    <color rgba="0.62 0.60 0.55 1.0" />
+                </material>
+            </visual>
+            <visual>
+                <origin xyz="0 0 0.265" rpy="0 0 0" />
+                <geometry>
+                    <cylinder radius="0.020" length="0.010" />
+                </geometry>
+                <material name="suction_cup_extension_connector">
+                    <color rgba="0.62 0.60 0.55 1.0" />
+                </material>
+            </visual>
+        </link>
+
+        <joint name="$(arg robot_name)_adapter_plate_visual_joint" type="fixed">
+            <parent link="$(arg robot_name)_vacuum_gripper" />
+            <child link="$(arg robot_name)_adapter_plate_visual" />
+            <origin xyz="0 0 0" rpy="0 0 0" />
+        </joint>
+        <link name="$(arg robot_name)_adapter_plate_visual">
+            <visual>
+                <origin xyz="0 0 0.275" rpy="0 0 0" />
+                <geometry>
+                    <cylinder radius="0.015" length="0.010" />
+                </geometry>
+                <material name="adapter_plate">
+                    <color rgba="0.86 0.58 0.18 1.0" />
+                </material>
+            </visual>
+        </link>
+
+        <joint name="$(arg robot_name)_suction_cup_assembly_visual_joint" type="fixed">
+            <parent link="$(arg robot_name)_vacuum_gripper" />
+            <child link="$(arg robot_name)_suction_cup_assembly_visual" />
+            <origin xyz="0 0 0" rpy="0 0 0" />
+        </joint>
+        <link name="$(arg robot_name)_suction_cup_assembly_visual">
+            <visual>
+                <origin xyz="0 0 0.294" rpy="0 0 0" />
+                <geometry>
+                    <mesh filename="package://lbr_description/meshes/iiwa14/visual/rounded_suction_cup_assembly.stl" />
+                </geometry>
+                <material name="suction_cup_assembly">
+                    <color rgba="0.82 0.80 0.72 1.0" />
+                </material>
+            </visual>
+            <visual>
+                <origin xyz="0.018 0 0.294" rpy="0 1.5708 0" />
+                <geometry>
+                    <cylinder radius="0.010" length="0.002" />
+                </geometry>
+                <material name="suction_cup_assembly">
+                    <color rgba="0.82 0.80 0.72 1.0" />
+                </material>
+            </visual>
+            <visual>
+                <origin xyz="-0.018 0 0.294" rpy="0 1.5708 0" />
+                <geometry>
+                    <cylinder radius="0.010" length="0.002" />
+                </geometry>
+                <material name="suction_cup_assembly">
+                    <color rgba="0.82 0.80 0.72 1.0" />
+                </material>
+            </visual>
+            <visual>
+                <origin xyz="0 0.018 0.294" rpy="1.5708 0 0" />
+                <geometry>
+                    <cylinder radius="0.010" length="0.002" />
+                </geometry>
+                <material name="suction_cup_assembly">
+                    <color rgba="0.82 0.80 0.72 1.0" />
+                </material>
+            </visual>
+            <visual>
+                <origin xyz="0 -0.018 0.294" rpy="1.5708 0 0" />
+                <geometry>
+                    <cylinder radius="0.010" length="0.002" />
+                </geometry>
+                <material name="suction_cup_assembly">
+                    <color rgba="0.82 0.80 0.72 1.0" />
+                </material>
+            </visual>
+        </link>
+
+        <joint name="$(arg robot_name)_suction_cup_visual_joint" type="fixed">
+            <parent link="$(arg robot_name)_vacuum_gripper" />
+            <child link="$(arg robot_name)_suction_cup_visual" />
+            <origin xyz="0 0 0" rpy="0 0 0" />
+        </joint>
+        <link name="$(arg robot_name)_suction_cup_visual">
+            <visual>
+                <origin xyz="0 0 0.317" rpy="0 0 0" />
+                <geometry>
+                    <cylinder radius="0.014" length="0.018" />
+                </geometry>
+                <material name="suction_cup">
+                    <color rgba="0.00 0.32 0.12 0.85" />
+                </material>
+            </visual>
+            <visual>
+                <origin xyz="0 0 0.332" rpy="0 0 0" />
+                <geometry>
+                    <cylinder radius="0.020" length="0.012" />
+                </geometry>
+                <material name="suction_cup">
+                    <color rgba="0.00 0.32 0.12 0.85" />
+                </material>
+            </visual>
+            <visual>
+                <origin xyz="0 0 0.340" rpy="0 0 0" />
+                <geometry>
+                    <cylinder radius="0.022" length="0.004" />
+                </geometry>
+                <material name="suction_cup">
+                    <color rgba="0.00 0.32 0.12 0.85" />
+                </material>
+            </visual>
+        </link>
+
+        <gazebo reference="$(arg robot_name)_vacuum_unit_visual">
+            <material>Gazebo/White</material>
+        </gazebo>
+        <gazebo reference="$(arg robot_name)_extension_tube_visual">
+            <material>Gazebo/Grey</material>
+        </gazebo>
+        <gazebo reference="$(arg robot_name)_adapter_plate_visual">
+            <material>Gazebo/Orange</material>
+        </gazebo>
+        <gazebo reference="$(arg robot_name)_suction_cup_assembly_visual">
+            <material>Gazebo/White</material>
+        </gazebo>
+        <gazebo reference="$(arg robot_name)_suction_cup_visual">
+            <material>Gazebo/Green</material>
+        </gazebo>
+    </xacro:if>
 </robot>
