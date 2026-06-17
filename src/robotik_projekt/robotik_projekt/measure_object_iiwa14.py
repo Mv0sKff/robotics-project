@@ -39,8 +39,8 @@ from robotik_projekt.pick_place_iiwa14_config import (
 # are expected to live next to `training_data_ready.csv` (i.e. in the workspace
 # root from which the node is launched).
 DEFAULT_MODEL_DIR = Path.cwd()
-DEFAULT_MODEL_PATH = DEFAULT_MODEL_DIR / 'object_measurement_model.keras'
-DEFAULT_SCALER_PATH = DEFAULT_MODEL_DIR / 'object_measurement_scaler.joblib'
+DEFAULT_MODEL_PATH = DEFAULT_MODEL_DIR / 'Model_with_Weights_minmax_[512, 256, 128, 64]_LR_0.0_Drop_0.1_learn_0.005.keras'
+DEFAULT_SCALER_PATH = DEFAULT_MODEL_DIR / 'robust_scaler_Model_with_Weights_minmax_[512, 256, 128, 64]_LR_0.0_Drop_0.1_learn_0.005.pkl'
 
 # Order of the 35 input features expected by the trained model.
 # Layout: 7 axes × 5 positions (center, front, left, right, back)
@@ -272,14 +272,19 @@ class MeasureObject(Node):
                 row.append(self._samples[pos][axis])
         return np.array(row, dtype=np.float32).reshape(1, -1)
 
-    def predict(self) -> tuple[float, float, float]:
-        '''Runs the trained model on the recorded samples.'''
+    def predict(self) -> tuple[float, float, float, float]:
+        '''Runs the trained model on the recorded samples.
+        Returns (x, y, z, gewicht) as predicted by the model trained in
+        `Modelllernen mit Gewicht.ipynb`.'''
         x_input = self._build_feature_vector()
         self.get_logger().info(f'Feature vector: {x_input.tolist()}')
         x_scaled = self.scaler.transform(x_input)
         prediction = self.model.predict(x_scaled, verbose=0)[0]
-        x, y, z = float(prediction[0]), float(prediction[1]), float(prediction[2])
-        return x, y, z
+        x = float(prediction[0])
+        y = float(prediction[1])
+        z = float(prediction[2])
+        gewicht = float(prediction[3])
+        return x, y, z, gewicht
 
     # -------------------------------------------------------------------------
     # Main process
@@ -341,19 +346,22 @@ class MeasureObject(Node):
         self.move_to_joint_position(START_JOINT_POSITION, 'start')
 
         # ------------------------------------------------------------------
-        # Predict x, y, z from the recorded torques and print the result.
+        # Predict x, y, z, Gewicht from the recorded torques and print the result.
+        # Model trained in `Modelllernen mit Gewicht.ipynb` has 4 outputs.
         # ------------------------------------------------------------------
         self.get_logger().info('Running model inference...')
-        x_pred, y_pred, z_pred = self.predict()
+        x_pred, y_pred, z_pred, gewicht_pred = self.predict()
 
         self.get_logger().info('=== Measurement result ===')
-        self.get_logger().info(f'  x = {x_pred:.4f}')
-        self.get_logger().info(f'  y = {y_pred:.4f}')
-        self.get_logger().info(f'  z = {z_pred:.4f}')
+        self.get_logger().info(f'  x       = {x_pred:.4f}')
+        self.get_logger().info(f'  y       = {y_pred:.4f}')
+        self.get_logger().info(f'  z       = {z_pred:.4f}')
+        self.get_logger().info(f'  Gewicht = {gewicht_pred:.4f}')
         print('\n=== Measurement result ===')
-        print(f'  x = {x_pred:.4f}')
-        print(f'  y = {y_pred:.4f}')
-        print(f'  z = {z_pred:.4f}')
+        print(f'  x       = {x_pred:.4f}')
+        print(f'  y       = {y_pred:.4f}')
+        print(f'  z       = {z_pred:.4f}')
+        print(f'  Gewicht = {gewicht_pred:.4f}')
 
         return 0
 
