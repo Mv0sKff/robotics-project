@@ -39,8 +39,8 @@ from robotik_projekt.pick_place_iiwa14_config import (
 # are expected to live next to `training_data_ready.csv` (i.e. in the workspace
 # root from which the node is launched).
 DEFAULT_MODEL_DIR = Path.cwd()
-DEFAULT_MODEL_PATH = DEFAULT_MODEL_DIR / 'Model_with_Weights_minmax_[512, 256, 128, 64]_LR_0.0_Drop_0.1_learn_0.005.keras'
-DEFAULT_SCALER_PATH = DEFAULT_MODEL_DIR / 'robust_scaler_Model_with_Weights_minmax_[512, 256, 128, 64]_LR_0.0_Drop_0.1_learn_0.005.pkl'
+DEFAULT_MODEL_PATH = DEFAULT_MODEL_DIR / 'Model_with_Weights_robust_[512, 256, 128, 64]_L2_0.1_Drop_0.1_lr_0.001.keras'
+DEFAULT_SCALER_PATH = DEFAULT_MODEL_DIR / 'robust_scaler_Model_with_Weights_robust_[512, 256, 128, 64]_L2_0.1_Drop_0.1_lr_0.001.pkl'
 
 # Order of the 35 input features expected by the trained model.
 # Layout: 7 axes × 5 positions (center, front, left, right, back)
