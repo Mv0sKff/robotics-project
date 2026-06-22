@@ -15,7 +15,7 @@ import tensorflow as tf
 from joblib import load as joblib_load
 
 import tf2_ros
-from pymoveit2 import MoveIt2
+from pymoveit2 import MoveIt2, MoveIt2State
 from sensor_msgs.msg import JointState
 from scipy.spatial.transform import Rotation
 
@@ -69,6 +69,7 @@ class MeasureObject(Node):
 
         self.callback_group = ReentrantCallbackGroup()
         self._joint_state_received = False
+        self._joint_state = None
 
         self.create_subscription(JointState, 'joint_states', self._on_joint_state, 10)
 
@@ -110,6 +111,7 @@ class MeasureObject(Node):
     def _on_joint_state(self, msg: JointState):
         if not self._joint_state_received:
             self.get_logger().info('Joint States available.')
+        self._joint_state = msg
         self._joint_state_received = True
 
     def _on_lbr_state(self, msg: LBRState):
@@ -211,14 +213,63 @@ class MeasureObject(Node):
     # Movement Commands
     # -------------------------------------------------------------------------
 
+    def _plan_and_execute(self, name: str, **planning_args) -> bool:
+        """Plan and execute a movement using the background executor."""
+        start_joint_state = self._joint_state
+        if start_joint_state is None:
+            self.get_logger().error(f'[{name}] no joint state available for planning')
+            return False
+
+        try:
+            planning_future = self.moveit2.plan_async(
+                start_joint_state=start_joint_state,
+                **planning_args,
+            )
+            if planning_future is None:
+                self.get_logger().error(f'[{name}] planning request could not be sent')
+                return False
+
+            while rclpy.ok() and not planning_future.done():
+                time.sleep(0.01)
+
+            if not planning_future.done():
+                self.get_logger().error(f'[{name}] planning interrupted')
+                return False
+
+            trajectory = self.moveit2.get_trajectory(
+                planning_future,
+                cartesian=planning_args.get('cartesian', False),
+            )
+            if trajectory is None:
+                self.get_logger().error(f'[{name}] planning failed')
+                return False
+
+            self.moveit2.execute(trajectory)
+            if self.moveit2.query_state() == MoveIt2State.IDLE:
+                self.get_logger().error(f'[{name}] trajectory execution could not be started')
+                return False
+
+            while (
+                rclpy.ok()
+                and self.moveit2.query_state() != MoveIt2State.IDLE
+            ):
+                time.sleep(0.01)
+
+            return rclpy.ok() and self.moveit2.motion_suceeded
+        except Exception as exc:
+            self.get_logger().error(f'[{name}] movement error: {exc}')
+            return False
+
     def move_to_joint_position(self, joint_positions: list[float], name: str = ''):
         '''Moves to a joint position (values in radians).'''
         self.get_logger().info(
             f'[{name}] joint position = '
             + ', '.join(f'{j}={v:.3f}' for j, v in zip(JOINT_NAMES, joint_positions))
         )
-        self.moveit2.move_to_configuration(joint_positions)
-        ok = self.moveit2.wait_until_executed()
+        ok = self._plan_and_execute(
+            name,
+            joint_positions=joint_positions,
+        )
         if not ok:
             self.get_logger().error(f'[{name}] motion failed')
         else:
@@ -230,8 +281,12 @@ class MeasureObject(Node):
         target_quat = self._apply_rotation_absolut(current_quat, roll, pitch, yaw)
 
         self.get_logger().info(f'[{name}] Absolute position = ({x:.3f}, {y:.3f}, {z:.3f})')
-        self.moveit2.move_to_pose(position=[x, y, z], quat_xyzw=target_quat, cartesian=False)
-        ok = self.moveit2.wait_until_executed()
+        ok = self._plan_and_execute(
+            name,
+            position=[x, y, z],
+            quat_xyzw=target_quat,
+            cartesian=False,
+        )
         if not ok:
             self.get_logger().error(f'[{name}] motion failed')
         else:
@@ -248,8 +303,12 @@ class MeasureObject(Node):
             f'Δrot = ({math.degrees(roll):+.1f}°,{math.degrees(pitch):+.1f}°,{math.degrees(yaw):+.1f}°)'
             f'Current-Pos = ({current_pos[0]:.3f}, {current_pos[1]:.3f}, {current_pos[2]:.3f}), Current-Rot = ({math.degrees(Rotation.from_quat(current_quat).as_euler("xyz")[0]):.1f}°,{math.degrees(Rotation.from_quat(current_quat).as_euler("xyz")[1]):.1f}°,{math.degrees(Rotation.from_quat(current_quat).as_euler("xyz")[2]):.1f}°)'
         )
-        self.moveit2.move_to_pose(position=target, quat_xyzw=target_quat, cartesian=False)
-        ok = self.moveit2.wait_until_executed()
+        ok = self._plan_and_execute(
+            name,
+            position=target,
+            quat_xyzw=target_quat,
+            cartesian=False,
+        )
         if not ok:
             self.get_logger().error(f'[{name}] motion failed')
         else:
@@ -395,8 +454,9 @@ def main() -> int:
         # returns to idle and the program can be rerun without restarting the server.
         # The executor must still be spinning while cancel_execution() sends its request.
         try:
-            node.moveit2.cancel_execution()
-            time.sleep(0.5)  # give the cancel request time to be processed
+            if node.moveit2.query_state() == MoveIt2State.EXECUTING:
+                node.moveit2.cancel_execution()
+                time.sleep(0.5)  # give the cancel request time to be processed
         except Exception:
             pass
         executor.shutdown()
