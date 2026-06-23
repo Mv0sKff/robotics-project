@@ -90,5 +90,5 @@ ros2 launch lbr_bringup move_group.launch.py \
 ```sh
 colcon build --packages-select robotik_projekt
 source install/setup.bash
-ros2 run robotik_projekt pick_place_iiwa14 --ros-args -r __ns:=/lbr
+ros2 run robotik_projekt measure_object_iiwa14 --ros-args -r __ns:=/lbr
 ```
