@@ -388,9 +388,9 @@ class MeasureObject(Node):
             dy=0.0,
             roll=math.radians(0),
             pitch=math.radians(-30),
-            name='data_recording_back'
+            name='data_recording_right'
         )
-        self.record_data_point('data_recording_back')
+        self.record_data_point('data_recording_right')
 
         self.move_to_joint_position(START_JOINT_POSITION, 'start')
         self.move_to_relative_position(
@@ -398,9 +398,9 @@ class MeasureObject(Node):
             dy=0.0,
             roll=math.radians(30),
             pitch=math.radians(0),
-            name='data_recording_right'
+            name='data_recording_back'
         )
-        self.record_data_point('data_recording_right')
+        self.record_data_point('data_recording_back')
 
         self.move_to_joint_position(START_JOINT_POSITION, 'start')
 
